@@ -1,0 +1,41 @@
+{
+  "currentVersion": 1,
+  "scopes": {
+    "common": {
+      "detect": "always",
+      "managed": [],
+      "seeded": [],
+      "sections": [
+        {
+          "file": "README.md",
+          "marker": "sebastian-software-branding",
+          "templates": {
+            "oss": "reference/common/branding-footer-oss.md",
+            "private": "reference/common/branding-footer-private.md"
+          }
+        }
+      ]
+    },
+    "node": {
+      "detect": "package.json",
+      "managed": [
+        { "source": "reference/node/oxfmtrc.json", "target": ".oxfmtrc.json" },
+        { "source": "reference/node/oxfmtignore", "target": ".oxfmtignore" }
+      ],
+      "seeded": [
+        { "source": "reference/node/eslint.config.ts", "target": "eslint.config.ts" },
+        { "source": "reference/node/oxlint.config.ts", "target": "oxlint.config.ts" },
+        { "source": "reference/node/tsconfig.json", "target": "tsconfig.json" },
+        { "source": "reference/node/cspell.json", "target": "cspell.json" },
+        { "source": "reference/node/renovate.json", "target": "renovate.json" }
+      ],
+      "sections": []
+    },
+    "rust": {
+      "detect": "Cargo.toml",
+      "managed": [],
+      "seeded": [],
+      "sections": []
+    }
+  }
+}

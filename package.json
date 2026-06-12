@@ -1,0 +1,55 @@
+{
+  "name": "@sebastian-software/standards",
+  "version": "0.1.0",
+  "description": "Repository standards for Sebastian Software — reference files, migration changelogs, agent instructions and a CLI to check and apply them.",
+  "license": "MIT",
+  "author": {
+    "name": "Sebastian Software GmbH",
+    "url": "https://sebastian-software.com"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/sebastian-software/standards.git"
+  },
+  "funding": {
+    "type": "github",
+    "url": "https://github.com/sponsors/sebastian-software"
+  },
+  "bin": {
+    "standards": "./dist/cli.js"
+  },
+  "files": [
+    "dist",
+    "reference",
+    "changes",
+    "manifest.json",
+    "SKILL.md"
+  ],
+  "type": "module",
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "test": "vitest run",
+    "typecheck": "tsc -p tsconfig.root.json",
+    "lint": "pnpm lint:oxlint && pnpm lint:eslint",
+    "lint:eslint": "eslint . --max-warnings=0",
+    "lint:oxlint": "oxlint -c oxlint.config.ts",
+    "format": "oxfmt --ignore-path .oxfmtignore --write .",
+    "format:check": "oxfmt --ignore-path .oxfmtignore --check .",
+    "check:self": "node dist/cli.js check",
+    "agent:check": "pnpm lint && pnpm format:check && pnpm typecheck && pnpm build && pnpm test && pnpm check:self"
+  },
+  "devDependencies": {
+    "@types/node": "^24.12.4",
+    "eslint": "^10.4.0",
+    "eslint-config-setup": "^0.4.0",
+    "jiti": "^2.7.0",
+    "oxfmt": "^0.54.0",
+    "oxlint": "^1.69.0",
+    "typescript": "^6.0.3",
+    "vitest": "^4.1.7"
+  },
+  "engines": {
+    "node": ">=24.0.0"
+  },
+  "packageManager": "pnpm@11.6.0"
+}
