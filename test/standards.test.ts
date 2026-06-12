@@ -133,3 +133,11 @@ describe("selectChanges and buildPrompt", () => {
     expect(prompt).toContain("visibility: oss");
   });
 });
+
+describe("published binary", () => {
+  it("bin wrapper starts with a node shebang", async () => {
+    const { getPackageRoot } = await import("../src/manifest.js");
+    const wrapper = readFileSync(join(getPackageRoot(), "bin/standards.js"), "utf8");
+    expect(wrapper.startsWith("#!/usr/bin/env node\n")).toBe(true);
+  });
+});

@@ -9,16 +9,17 @@
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/sebastian-software/standards.git"
+    "url": "git+https://github.com/sebastian-software/standards.git"
   },
   "funding": {
     "type": "github",
     "url": "https://github.com/sponsors/sebastian-software"
   },
   "bin": {
-    "standards": "dist/cli.js"
+    "standards": "bin/standards.js"
   },
   "files": [
+    "bin",
     "dist",
     "reference",
     "changes",

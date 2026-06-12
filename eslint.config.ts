@@ -4,6 +4,7 @@ const config = await getEslintConfig({ node: true, oxlint: true });
 
 config.unshift({
   ignores: [
+    "bin/**",
     "**/dist/**",
     "coverage/**",
     "node_modules/**",
