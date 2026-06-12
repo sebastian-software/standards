@@ -1,6 +1,6 @@
 {
   "name": "@sebastian-software/standards",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Repository standards for Sebastian Software — reference files, migration changelogs, agent instructions and a CLI to check and apply them.",
   "license": "MIT",
   "author": {
@@ -16,7 +16,7 @@
     "url": "https://github.com/sponsors/sebastian-software"
   },
   "bin": {
-    "standards": "./dist/cli.js"
+    "standards": "dist/cli.js"
   },
   "files": [
     "dist",
@@ -31,6 +31,7 @@
   },
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
+    "prepublishOnly": "pnpm build",
     "test": "vitest run",
     "typecheck": "tsc -p tsconfig.root.json",
     "lint": "pnpm lint:oxlint && pnpm lint:eslint",
