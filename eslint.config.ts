@@ -14,11 +14,13 @@ config.unshift({
   ],
 });
 
-// The CLI's whole job is reading and writing repo files from dynamic paths.
+// The CLI's whole job is reading and writing repo files from dynamic paths
+// and spawning the agent CLIs (claude/codex) as child processes.
 config.push({
   files: ["src/**/*.ts", "test/**/*.ts"],
   rules: {
     "security/detect-non-literal-fs-filename": "off",
+    "security/detect-child-process": "off",
   },
 });
 

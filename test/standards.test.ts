@@ -101,3 +101,35 @@ describe("apply and check", () => {
     expect(readFileSync(join(cwd, "eslint.config.ts"), "utf8")).toBe("// custom local config\n");
   });
 });
+
+describe("selectChanges and buildPrompt", () => {
+  it("filters changelog entries by version and scope", async () => {
+    const { selectChanges } = await import("../src/changes.js");
+    const { getPackageRoot } = await import("../src/manifest.js");
+    const root = getPackageRoot();
+
+    expect(selectChanges(root, 0, ["common"])).toHaveLength(1);
+    expect(selectChanges(root, 1, ["common", "node"])).toHaveLength(0);
+    expect(selectChanges(root, 0, ["rust"])).toHaveLength(0);
+  });
+
+  it("builds an agent prompt containing skill and changelog", async () => {
+    const { buildPrompt } = await import("../src/agent.js");
+    const { selectChanges } = await import("../src/changes.js");
+    const { getPackageRoot } = await import("../src/manifest.js");
+    const root = getPackageRoot();
+
+    const prompt = buildPrompt({
+      packageRoot: root,
+      meta: { standards: 1, visibility: "oss", since: 2020 },
+      scopeNames: ["common", "node"],
+      fromVersion: 0,
+      toVersion: 1,
+      changes: selectChanges(root, 0, ["common", "node"]),
+    });
+
+    expect(prompt).toContain("repository standards — agent instructions");
+    expect(prompt).toContain("0001-baseline.md");
+    expect(prompt).toContain("visibility: oss");
+  });
+});
