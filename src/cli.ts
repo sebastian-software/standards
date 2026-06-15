@@ -6,12 +6,15 @@ import { selectChanges } from "./changes.js";
 import { runCheck } from "./check.js";
 import { getPackageRoot, loadManifest } from "./manifest.js";
 import { detectScopes, readRepoMeta } from "./repo.js";
+import { writePending } from "./sync.js";
 
 const USAGE = `Usage: standards <command> [--cwd <dir>]
 
 Commands:
   check   Report drift between this repository and the org standards (exit 1 on drift)
   apply   Write managed files, seed missing ones, update branding sections, bump the stamp
+          [--from-version <int>: explicit baseline for pending-marker selection]
+          [--emit-pending <path>: write a JSON marker describing pending judgement work]
   sync    apply + run an agent (claude or codex) on the changelog entries that need judgement
           [--agent claude|codex] [--dry-run: print the agent prompt instead of running]
 `;
@@ -36,14 +39,51 @@ function getAgent(args: string[]): AgentName {
   return agent;
 }
 
+function getFlagValue(args: string[], flag: string): string | undefined {
+  const index = args.indexOf(flag);
+  if (index === -1) {
+    return undefined;
+  }
+  const raw = args[index + 1];
+  if (raw === undefined || raw === "" || raw.startsWith("--")) {
+    throw new Error(`${flag} requires a value argument.`);
+  }
+  return raw;
+}
+
+function getFromVersion(args: string[]): number | undefined {
+  const raw = getFlagValue(args, "--from-version");
+  if (raw === undefined) {
+    return undefined;
+  }
+  if (!/^\d+$/u.test(raw)) {
+    throw new Error(`--from-version requires a non-negative integer — got ${JSON.stringify(raw)}.`);
+  }
+  return Number(raw);
+}
+
+function getEmitPending(args: string[]): string | undefined {
+  return getFlagValue(args, "--emit-pending");
+}
+
 function reportApplied(changes: ReturnType<typeof runApply>): void {
   for (const change of changes) {
     out(`${change.action.padEnd(8)} ${change.path}`);
   }
 }
 
-function applyCommand(cwd: string, currentYear: number): void {
+function applyCommand(cwd: string, currentYear: number, args: string[]): void {
+  const explicitFromVersion = getFromVersion(args);
+  const emitPending = getEmitPending(args);
+  const preApplyStandards = readRepoMeta(cwd).standards;
+  const effectiveFromVersion = explicitFromVersion ?? preApplyStandards;
+
   const changes = runApply(cwd, currentYear);
+
+  if (emitPending !== undefined) {
+    writePending(cwd, emitPending, effectiveFromVersion);
+  }
+
   if (changes.length === 0) {
     out("✓ Already up to date with org standards.");
     return;
@@ -114,7 +154,7 @@ function main(): void {
 
   switch (command) {
     case "apply": {
-      applyCommand(cwd, currentYear);
+      applyCommand(cwd, currentYear, rest);
       break;
     }
     case "check": {

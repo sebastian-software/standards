@@ -1,11 +1,20 @@
-import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { createHash } from "node:crypto";
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, relative } from "node:path";
 import { describe, expect, it } from "vitest";
 
 import { runApply } from "../src/apply.js";
 import { copyrightYears, renderTemplate, upsertSection } from "../src/branding.js";
 import { runCheck } from "../src/check.js";
+import { buildPendingPayload, writePending } from "../src/sync.js";
 
 const YEAR = 2026;
 
@@ -108,8 +117,11 @@ describe("selectChanges and buildPrompt", () => {
     const { getPackageRoot } = await import("../src/manifest.js");
     const root = getPackageRoot();
 
-    expect(selectChanges(root, 0, ["common"])).toHaveLength(1);
-    expect(selectChanges(root, 1, ["common", "node"])).toHaveLength(0);
+    expect(selectChanges(root, 0, ["common"]).map((entry) => entry.version)).toStrictEqual([1, 2]);
+    expect(selectChanges(root, 1, ["common", "node"]).map((entry) => entry.version)).toStrictEqual([
+      2,
+    ]);
+    expect(selectChanges(root, 2, ["common", "node"])).toHaveLength(0);
     expect(selectChanges(root, 0, ["rust"])).toHaveLength(0);
   });
 
@@ -124,13 +136,171 @@ describe("selectChanges and buildPrompt", () => {
       meta: { standards: 1, visibility: "oss", since: 2020 },
       scopeNames: ["common", "node"],
       fromVersion: 0,
-      toVersion: 1,
+      toVersion: 2,
       changes: selectChanges(root, 0, ["common", "node"]),
     });
 
     expect(prompt).toContain("repository standards — agent instructions");
     expect(prompt).toContain("0001-baseline.md");
+    expect(prompt).toContain("0002-renovate-pending.md");
     expect(prompt).toContain("visibility: oss");
+  });
+});
+
+function hashTree(root: string): Map<string, string> {
+  const hashes = new Map<string, string>();
+  const walk = (dir: string): void => {
+    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+      const full = join(dir, entry.name);
+      const handler = entry.isDirectory()
+        ? walk
+        : (path: string): void => {
+            hashes.set(
+              relative(root, path),
+              createHash("sha256").update(readFileSync(path)).digest("hex"),
+            );
+          };
+      handler(full);
+    }
+  };
+  walk(root);
+  return hashes;
+}
+
+function readStamp(cwd: string): number {
+  const raw: unknown = JSON.parse(readFileSync(join(cwd, ".repometa.json"), "utf8"));
+  if (typeof raw !== "object" || raw === null || !("standards" in raw)) {
+    throw new Error("invalid .repometa.json");
+  }
+  const value = (raw as Record<string, unknown>).standards;
+  if (typeof value !== "number") {
+    throw new TypeError("standards is not a number");
+  }
+  return value;
+}
+
+function unwrap<T>(value: T | undefined): T {
+  if (value === undefined) {
+    throw new Error("expected defined value");
+  }
+  return value;
+}
+
+const CONTRACT_PREFIXES = [
+  ".oxfmtrc.json",
+  ".oxfmtignore",
+  "eslint.config.ts",
+  "oxlint.config.ts",
+  "tsconfig.json",
+  "cspell.json",
+  "renovate.json",
+  ".repometa.json",
+  "README.md",
+  ".standards/",
+];
+
+function withinContract(path: string): boolean {
+  return CONTRACT_PREFIXES.some(
+    (prefix) => path === prefix || (prefix.endsWith("/") && path.startsWith(prefix)),
+  );
+}
+
+describe("buildPendingPayload", () => {
+  it("emits a schema-versioned payload when changes are pending", () => {
+    const cwd = createFixtureRepo();
+    const payload = unwrap(buildPendingPayload(cwd, 0));
+    expect(payload).toMatchObject({
+      schemaVersion: 1,
+      fromVersion: 0,
+      visibility: "oss",
+      exceptions: [],
+    });
+    expect(payload.toVersion).toBeGreaterThanOrEqual(2);
+    expect(payload.scopes).toContain("common");
+    expect(payload.scopes).toContain("node");
+    expect(payload.prompt).toContain("repository standards — agent instructions");
+    expect(payload.changes.length).toBeGreaterThan(0);
+    expect(payload.changes.every((entry) => typeof entry.content === "string")).toBe(true);
+  });
+
+  it("returns undefined when the stamp matches the manifest", () => {
+    const cwd = createFixtureRepo();
+    runApply(cwd, YEAR);
+    const stamp = readStamp(cwd);
+    expect(stamp).toBeGreaterThanOrEqual(2);
+    expect(buildPendingPayload(cwd, stamp)).toBeUndefined();
+  });
+
+  it("uses explicit fromVersion even when .repometa.json was already bumped", () => {
+    const cwd = createFixtureRepo();
+    runApply(cwd, YEAR);
+
+    const payload = unwrap(buildPendingPayload(cwd, 0));
+    expect(payload.fromVersion).toBe(0);
+    expect(payload.changes.length).toBeGreaterThan(0);
+  });
+});
+
+describe("writePending", () => {
+  it("writes the schema-versioned marker at the resolved path", () => {
+    const cwd = createFixtureRepo();
+    writePending(cwd, ".standards/pending.json", 0);
+
+    const path = join(cwd, ".standards/pending.json");
+    expect(existsSync(path)).toBe(true);
+    const parsed: unknown = JSON.parse(readFileSync(path, "utf8"));
+    expect(parsed).toMatchObject({ schemaVersion: 1, fromVersion: 0 });
+  });
+
+  it("removes a stale marker when no changes are pending", () => {
+    const cwd = createFixtureRepo();
+    runApply(cwd, YEAR);
+    const stamp = readStamp(cwd);
+    const path = join(cwd, ".standards/pending.json");
+    mkdirSync(join(cwd, ".standards"), { recursive: true });
+    writeFileSync(path, "{}\n", "utf8");
+
+    writePending(cwd, ".standards/pending.json", stamp);
+
+    expect(existsSync(path)).toBe(false);
+  });
+
+  it("is a no-op when no changes are pending and no marker exists", () => {
+    const cwd = createFixtureRepo();
+    runApply(cwd, YEAR);
+    const stamp = readStamp(cwd);
+    const path = join(cwd, ".standards/pending.json");
+
+    writePending(cwd, ".standards/pending.json", stamp);
+
+    expect(existsSync(path)).toBe(false);
+  });
+});
+
+describe("apply write contract", () => {
+  it("modifies only contract-allowed paths", () => {
+    const cwd = createFixtureRepo();
+
+    const foreign = ["src/x.ts", ".gitignore", "docs/notes.md"];
+    foreign.forEach((rel) => {
+      const target = join(cwd, rel);
+      mkdirSync(join(target, ".."), { recursive: true });
+      writeFileSync(target, `foreign:${rel}\n`);
+    });
+
+    const before = hashTree(cwd);
+    runApply(cwd, YEAR);
+    const after = hashTree(cwd);
+
+    const modifiedPaths = [...after.entries()]
+      .filter(([path, hash]) => before.get(path) !== hash)
+      .map(([path]) => path);
+    const removedPaths = [...before.keys()].filter((path) => !after.has(path));
+    const violators = [...modifiedPaths, ...removedPaths].filter((path) => !withinContract(path));
+    expect(violators).toStrictEqual([]);
+
+    const preservedForeign = foreign.map((rel) => readFileSync(join(cwd, rel), "utf8"));
+    expect(preservedForeign).toStrictEqual(foreign.map((rel) => `foreign:${rel}\n`));
   });
 });
 

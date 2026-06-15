@@ -1,4 +1,5 @@
 {
   "version": "0.2",
+  "ignorePaths": [".standards/"],
   "words": ["lockfile", "ndash", "oxfmt", "oxlint", "pnpm", "repometa"]
 }

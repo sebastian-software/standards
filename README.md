@@ -28,10 +28,26 @@ is split between the CLI (mechanics) and an agent following [SKILL.md](SKILL.md)
 ```bash
 standards check   # report drift, exit 1 if any (part of agent:check)
 standards apply   # write managed files, seed missing ones, update branding, bump stamp
+                  #   --from-version <int>    explicit baseline for pending-marker selection
+                  #   --emit-pending <path>   write a JSON marker describing pending judgement work
+standards sync    # apply + run an agent (claude or codex) locally on the pending changelog entries
 ```
 
 Node repositories consume this package as a devDependency; other stacks run it
 via `pnpm dlx @sebastian-software/standards check`.
+
+## Renovate-driven workflow
+
+A self-hosted Renovate server can drive standards updates across the org without
+per-repo schedulers and without stack-specific paths. The Renovate worker runs
+`standards apply --from-version {{currentValue}} --emit-pending .standards/pending.json`
+on the upgrade branch; the resulting PR contains all mechanical changes plus a
+JSON marker that an external LLM agent (OpenClaw, local Claude Code, Codex)
+picks up in pull mode to apply the judgement-driven changelog steps.
+
+See [changes/0002-renovate-pending.md](changes/0002-renovate-pending.md) for the
+server-side prerequisites (custom datasource on `manifest.json#currentVersion`,
+allowed-commands pinning, per-repo opt-in via `.repometa.json`).
 
 ## File ownership
 
