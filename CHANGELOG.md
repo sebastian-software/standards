@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.3.0](https://github.com/sebastian-software/standards/compare/standards-v0.2.0...standards-v0.3.0) (2026-06-15)
+
+
+### Features
+
+* --from-version and --emit-pending flags for Renovate-driven sync ([1104582](https://github.com/sebastian-software/standards/commit/11045825f4fd586c4f2bf18bd1088ba2c53e3021))
+
 ## [0.2.0](https://github.com/sebastian-software/standards/compare/standards-v0.1.0...standards-v0.2.0) (2026-06-12)
 
 
