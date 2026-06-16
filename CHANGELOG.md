@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.4.0](https://github.com/sebastian-software/standards/compare/standards-v0.3.0...standards-v0.4.0) (2026-06-16)
+
+
+### Features
+
+* standards init command to bootstrap .repometa.json ([124c300](https://github.com/sebastian-software/standards/commit/124c300f3a381adb1aeb7da79b7ed53ab748e7d7))
+
 ## [0.3.0](https://github.com/sebastian-software/standards/compare/standards-v0.2.0...standards-v0.3.0) (2026-06-15)
 
 
