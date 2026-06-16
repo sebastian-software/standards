@@ -29,7 +29,7 @@ every repo carries a `.repometa.json` stamp and a managed branding footer.
 3. **Converge package.json scripts** on the org shape:
    `lint`, `lint:eslint`, `lint:oxlint`, `format`, `format:check`, `typecheck`,
    `build`, `test`, `agent:check` — see `reference/node/` and the org template
-   `sebastian-software/template-oss` for the exact shape. Keep repo-specific
+   `sebastian-software/repo-template` for the exact shape. Keep repo-specific
    extra scripts.
 4. **Migrate custom lint rules:** if the repo had a hand-written ESLint config,
    re-express deliberate overrides on top of
