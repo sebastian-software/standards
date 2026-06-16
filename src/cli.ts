@@ -1,9 +1,11 @@
 import type { AgentName } from "./agent.js";
+import type { InitOptions, Visibility } from "./init.js";
 
 import { AGENTS, buildPrompt, runAgent } from "./agent.js";
 import { runApply } from "./apply.js";
 import { selectChanges } from "./changes.js";
 import { runCheck } from "./check.js";
+import { InitError, parseSinceFlag, parseVisibilityFlag, runInit } from "./init.js";
 import { getPackageRoot, loadManifest } from "./manifest.js";
 import { detectScopes, readRepoMeta } from "./repo.js";
 import { writePending } from "./sync.js";
@@ -11,6 +13,8 @@ import { writePending } from "./sync.js";
 const USAGE = `Usage: standards <command> [--cwd <dir>]
 
 Commands:
+  init    Create .repometa.json interactively (or via flags for CI)
+          [--visibility oss|private] [--since <int>] [--yes] [--force]
   check   Report drift between this repository and the org standards (exit 1 on drift)
   apply   Write managed files, seed missing ones, update branding sections, bump the stamp
           [--from-version <int>: explicit baseline for pending-marker selection]
@@ -66,10 +70,74 @@ function getEmitPending(args: string[]): string | undefined {
   return getFlagValue(args, "--emit-pending");
 }
 
+function hasFlag(args: string[], flag: string): boolean {
+  return args.includes(flag);
+}
+
+function getVisibilityFlag(args: string[]): undefined | Visibility {
+  const raw = getFlagValue(args, "--visibility");
+  return raw === undefined ? undefined : parseVisibilityFlag(raw);
+}
+
+function getSinceFlag(args: string[], currentYear: number): number | undefined {
+  const raw = getFlagValue(args, "--since");
+  return raw === undefined ? undefined : parseSinceFlag(raw, currentYear);
+}
+
 function reportApplied(changes: ReturnType<typeof runApply>): void {
   for (const change of changes) {
     out(`${change.action.padEnd(8)} ${change.path}`);
   }
+}
+
+async function initCommand(cwd: string, currentYear: number, args: string[]): Promise<void> {
+  const yes = hasFlag(args, "--yes");
+  const force = hasFlag(args, "--force");
+  const visibility = getVisibilityFlag(args);
+  const since = getSinceFlag(args, currentYear);
+  const isTty = process.stdin.isTTY;
+
+  if (!yes && !isTty) {
+    throw new InitError(
+      "No TTY available for interactive prompts. Pass --yes (with --visibility/--since as needed) for non-interactive mode.",
+    );
+  }
+
+  const options: InitOptions = {
+    force,
+    interactive: !yes && isTty,
+    ...(visibility === undefined ? {} : { visibility }),
+    ...(since === undefined ? {} : { since }),
+  };
+  const previous = force ? safeReadRepoMeta(cwd) : undefined;
+  const meta = await runInit(cwd, currentYear, options);
+  reportInitResult(meta, force, previous);
+}
+
+function safeReadRepoMeta(cwd: string): ReturnType<typeof readRepoMeta> | undefined {
+  try {
+    return readRepoMeta(cwd);
+  } catch {
+    return undefined;
+  }
+}
+
+function reportInitResult(
+  meta: Awaited<ReturnType<typeof runInit>>,
+  force: boolean,
+  previous: ReturnType<typeof readRepoMeta> | undefined,
+): void {
+  if (force && previous !== undefined) {
+    out(
+      `Reset .repometa.json (was: standards=${String(previous.standards)}, visibility=${previous.visibility}, since=${String(previous.since)})`,
+    );
+  } else if (force) {
+    out("Reset .repometa.json (previous content was not parseable).");
+  }
+  out(
+    `Wrote .repometa.json (standards=0, visibility=${meta.visibility}, since=${String(meta.since)})`,
+  );
+  out("Next: run `standards apply` to populate managed and seeded files.");
 }
 
 function applyCommand(cwd: string, currentYear: number, args: string[]): void {
@@ -147,12 +215,16 @@ function dispatchAgent(dispatch: AgentDispatch): void {
   process.exitCode = runAgent(dispatch.agent, dispatch.prompt, dispatch.cwd);
 }
 
-function main(): void {
+async function main(): Promise<void> {
   const [command, ...rest] = process.argv.slice(2);
   const cwd = getCwd(rest);
   const currentYear = new Date().getFullYear();
 
   switch (command) {
+    case "init": {
+      await initCommand(cwd, currentYear, rest);
+      break;
+    }
     case "apply": {
       applyCommand(cwd, currentYear, rest);
       break;
@@ -173,4 +245,10 @@ function main(): void {
   }
 }
 
-main();
+try {
+  await main();
+} catch (error: unknown) {
+  const message = error instanceof Error ? error.message : String(error);
+  process.stderr.write(`${message}\n`);
+  process.exitCode = 1;
+}

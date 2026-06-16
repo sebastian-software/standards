@@ -30,9 +30,10 @@ Renovate container.
 
 - **Per-repo bootstrap (manual, one-off):** the repo carries the existing
   `managed-deps` topic of the Renovate server. `.repometa.json` is
-  created with `{ "standards": <previous version>, "visibility": ..., "since": ... }`.
-  The onboarding PR (`Configure Renovate`) has to be merged once before
-  standards drift becomes visible in the UI.
+  created by running `pnpm dlx @sebastian-software/standards init`
+  (interactive prompts for visibility and initial year; flags are
+  available for CI). The onboarding PR (`Configure Renovate`) has to
+  be merged once before standards drift becomes visible in the UI.
 - **Renovate server prerequisite:** a custom datasource reads
   `manifest.json#currentVersion` as an integer directly from the
   standards repo instead of using the published package's npm semver.

@@ -1,3 +1,4 @@
+import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import {
   existsSync,
@@ -9,11 +10,20 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, relative } from "node:path";
+import { PassThrough, Writable } from "node:stream";
 import { describe, expect, it } from "vitest";
 
 import { runApply } from "../src/apply.js";
 import { copyrightYears, renderTemplate, upsertSection } from "../src/branding.js";
 import { runCheck } from "../src/check.js";
+import {
+  detectFirstCommitYear,
+  InitError,
+  parseSinceFlag,
+  parseVisibilityChoice,
+  parseVisibilityFlag,
+  runInit,
+} from "../src/init.js";
 import { buildPendingPayload, writePending } from "../src/sync.js";
 
 const YEAR = 2026;
@@ -298,6 +308,277 @@ describe("apply write contract", () => {
     const removedPaths = [...before.keys()].filter((path) => !after.has(path));
     const violators = [...modifiedPaths, ...removedPaths].filter((path) => !withinContract(path));
     expect(violators).toStrictEqual([]);
+
+    const preservedForeign = foreign.map((rel) => readFileSync(join(cwd, rel), "utf8"));
+    expect(preservedForeign).toStrictEqual(foreign.map((rel) => `foreign:${rel}\n`));
+  });
+});
+
+function createFreshDir(): string {
+  return mkdtempSync(join(tmpdir(), "standards-init-"));
+}
+
+function initGitRepo(cwd: string, commitYear: number): void {
+  const env = {
+    ...process.env,
+    GIT_AUTHOR_NAME: "Test",
+    GIT_AUTHOR_EMAIL: "test@example.com",
+    GIT_COMMITTER_NAME: "Test",
+    GIT_COMMITTER_EMAIL: "test@example.com",
+    GIT_AUTHOR_DATE: `${String(commitYear)}-01-15T12:00:00`,
+    GIT_COMMITTER_DATE: `${String(commitYear)}-01-15T12:00:00`,
+  };
+  spawnSync("git", ["-C", cwd, "init", "--quiet", "--initial-branch=main"], { env });
+  writeFileSync(join(cwd, "README.md"), "# fixture\n");
+  spawnSync("git", ["-C", cwd, "add", "README.md"], { env });
+  spawnSync("git", ["-C", cwd, "commit", "--quiet", "-m", "initial"], { env });
+}
+
+describe("parseVisibilityFlag", () => {
+  it("accepts the two long forms", () => {
+    expect(parseVisibilityFlag("oss")).toBe("oss");
+    expect(parseVisibilityFlag("private")).toBe("private");
+  });
+
+  it("rejects short forms and anything else", () => {
+    expect(() => parseVisibilityFlag("o")).toThrow(InitError);
+    expect(() => parseVisibilityFlag("p")).toThrow(InitError);
+    expect(() => parseVisibilityFlag("internal")).toThrow(InitError);
+    expect(() => parseVisibilityFlag("")).toThrow(InitError);
+  });
+});
+
+describe("parseVisibilityChoice", () => {
+  it("accepts short and long forms case-insensitive and trimmed", () => {
+    expect(parseVisibilityChoice("o")).toBe("oss");
+    expect(parseVisibilityChoice("O")).toBe("oss");
+    expect(parseVisibilityChoice("oss")).toBe("oss");
+    expect(parseVisibilityChoice("OSS")).toBe("oss");
+    expect(parseVisibilityChoice(" oss ")).toBe("oss");
+    expect(parseVisibilityChoice("p")).toBe("private");
+    expect(parseVisibilityChoice("private")).toBe("private");
+  });
+
+  it("returns undefined for unrelated input", () => {
+    expect(parseVisibilityChoice("internal")).toBeUndefined();
+    expect(parseVisibilityChoice("1")).toBeUndefined();
+    expect(parseVisibilityChoice("yes")).toBeUndefined();
+  });
+});
+
+describe("parseSinceFlag", () => {
+  it("accepts a valid year and the inclusive currentYear+1 upper bound", () => {
+    expect(parseSinceFlag("2020", YEAR)).toBe(2020);
+    expect(parseSinceFlag("2026", YEAR)).toBe(2026);
+    expect(parseSinceFlag(String(YEAR + 1), YEAR)).toBe(YEAR + 1);
+  });
+
+  it("rejects non-integer, out-of-range, leading-zero, and current+2 years", () => {
+    expect(() => parseSinceFlag("abc", YEAR)).toThrow(InitError);
+    expect(() => parseSinceFlag("1999", YEAR)).toThrow(InitError);
+    expect(() => parseSinceFlag("99999", YEAR)).toThrow(InitError);
+    expect(() => parseSinceFlag(String(YEAR + 2), YEAR)).toThrow(InitError);
+    expect(() => parseSinceFlag("0000", YEAR)).toThrow(InitError);
+    expect(() => parseSinceFlag("02020", YEAR)).toThrow(InitError);
+  });
+
+  it("prefixes prompt-style errors with --since for flag callers", () => {
+    expect(() => parseSinceFlag("1999", YEAR)).toThrow(/^--since: /);
+  });
+});
+
+describe("detectFirstCommitYear", () => {
+  it("returns undefined for a non-git directory", () => {
+    const cwd = createFreshDir();
+    expect(detectFirstCommitYear(cwd, YEAR)).toBeUndefined();
+  });
+
+  it("returns the root-commit year for a backdated repo", () => {
+    const cwd = createFreshDir();
+    initGitRepo(cwd, 2020);
+    expect(detectFirstCommitYear(cwd, YEAR)).toBe(2020);
+  });
+
+  it("returns undefined when the repo has no commits", () => {
+    const cwd = createFreshDir();
+    spawnSync("git", ["-C", cwd, "init", "--quiet", "--initial-branch=main"]);
+    expect(detectFirstCommitYear(cwd, YEAR)).toBeUndefined();
+  });
+});
+
+describe("runInit", () => {
+  it("writes a complete schema with all options provided", async () => {
+    const cwd = createFreshDir();
+    const meta = await runInit(cwd, YEAR, {
+      visibility: "private",
+      since: 2024,
+      interactive: false,
+    });
+    expect(meta).toStrictEqual({ standards: 0, visibility: "private", since: 2024 });
+
+    const onDisk: unknown = JSON.parse(readFileSync(join(cwd, ".repometa.json"), "utf8"));
+    expect(onDisk).toStrictEqual(meta);
+  });
+
+  it("applies defaults when no options are passed and cwd is non-git", async () => {
+    const cwd = createFreshDir();
+    const meta = await runInit(cwd, YEAR, { interactive: false });
+    expect(meta).toStrictEqual({ standards: 0, visibility: "oss", since: YEAR });
+  });
+
+  it("uses the git root-commit year for the since default", async () => {
+    const cwd = createFreshDir();
+    initGitRepo(cwd, 2020);
+    const meta = await runInit(cwd, YEAR, { interactive: false });
+    expect(meta.since).toBe(2020);
+  });
+
+  it("refuses to overwrite an existing file without force", async () => {
+    const cwd = createFreshDir();
+    writeFileSync(join(cwd, ".repometa.json"), "{}\n");
+    await expect(runInit(cwd, YEAR, { interactive: false })).rejects.toThrow(/already exists/);
+    await expect(runInit(cwd, YEAR, { interactive: false })).rejects.toThrow(/--force/);
+  });
+
+  it("overwrites when force is set", async () => {
+    const cwd = createFreshDir();
+    writeFileSync(
+      join(cwd, ".repometa.json"),
+      `${JSON.stringify({ standards: 2, visibility: "oss", since: 2024 }, undefined, 2)}\n`,
+    );
+    const meta = await runInit(cwd, YEAR, { interactive: false, force: true });
+    expect(meta.standards).toBe(0);
+  });
+});
+
+type CapturedRun = {
+  input: PassThrough;
+  output: Writable;
+  captured: { current: string };
+};
+
+function createCapturedStreams(): CapturedRun {
+  const captured = { current: "" };
+  const output = new Writable({
+    write(chunk, _encoding, callback) {
+      captured.current += String(chunk);
+      callback();
+    },
+  });
+  return { input: new PassThrough(), output, captured };
+}
+
+async function feedInput(input: PassThrough, lines: string[]): Promise<void> {
+  for (const line of lines) {
+    input.write(`${line}\n`);
+    await new Promise<void>((resolve) => {
+      setImmediate(resolve);
+    });
+  }
+}
+
+describe("runInit interactive prompt loop", () => {
+  it("accepts single-letter shortcuts and returns the parsed values", async () => {
+    const cwd = createFreshDir();
+    const { input, output, captured } = createCapturedStreams();
+    const initPromise = runInit(cwd, YEAR, {
+      interactive: true,
+      streams: { input, output },
+    });
+    void feedInput(input, ["p", "2018"]);
+
+    const meta = await initPromise;
+    expect(meta).toStrictEqual({ standards: 0, visibility: "private", since: 2018 });
+    expect(captured.current).toContain("Repository visibility");
+    expect(captured.current).toContain("(o) open source");
+  });
+
+  it("applies defaults on empty input", async () => {
+    const cwd = createFreshDir();
+    const { input, output } = createCapturedStreams();
+    const initPromise = runInit(cwd, YEAR, {
+      interactive: true,
+      streams: { input, output },
+    });
+    void feedInput(input, ["", ""]);
+
+    const meta = await initPromise;
+    expect(meta).toStrictEqual({ standards: 0, visibility: "oss", since: YEAR });
+  });
+
+  it("re-prompts after invalid visibility, then accepts a valid value", async () => {
+    const cwd = createFreshDir();
+    const { input, output, captured } = createCapturedStreams();
+    const initPromise = runInit(cwd, YEAR, {
+      interactive: true,
+      streams: { input, output },
+    });
+    void feedInput(input, ["x", "oss", "2020"]);
+
+    const meta = await initPromise;
+    expect(meta.visibility).toBe("oss");
+    expect(captured.current).toContain("Please answer o, p, oss, or private.");
+  });
+
+  it("re-prompts after invalid year, then accepts a valid value", async () => {
+    const cwd = createFreshDir();
+    const { input, output, captured } = createCapturedStreams();
+    const initPromise = runInit(cwd, YEAR, {
+      interactive: true,
+      streams: { input, output },
+    });
+    void feedInput(input, ["o", "1999", "2020"]);
+
+    const meta = await initPromise;
+    expect(meta.since).toBe(2020);
+    expect(captured.current).toContain("Year must be");
+    expect(captured.current).not.toContain("--since");
+  });
+
+  it("aborts after 3 invalid visibility attempts", async () => {
+    const cwd = createFreshDir();
+    const { input, output } = createCapturedStreams();
+    const initPromise = runInit(cwd, YEAR, {
+      interactive: true,
+      streams: { input, output },
+    });
+    void feedInput(input, ["x", "y", "z"]);
+
+    await expect(initPromise).rejects.toThrow(/Too many invalid attempts for visibility/);
+  });
+
+  it("aborts after 3 invalid year attempts", async () => {
+    const cwd = createFreshDir();
+    const { input, output } = createCapturedStreams();
+    const initPromise = runInit(cwd, YEAR, {
+      interactive: true,
+      streams: { input, output },
+    });
+    void feedInput(input, ["o", "abc", "1999", "99999"]);
+
+    await expect(initPromise).rejects.toThrow(/Too many invalid attempts for initial year/);
+  });
+});
+
+describe("runInit write contract", () => {
+  it("modifies only .repometa.json", async () => {
+    const cwd = createFreshDir();
+    const foreign = ["src/x.ts", ".gitignore", "docs/notes.md"];
+    foreign.forEach((rel) => {
+      const target = join(cwd, rel);
+      mkdirSync(join(target, ".."), { recursive: true });
+      writeFileSync(target, `foreign:${rel}\n`);
+    });
+
+    const before = hashTree(cwd);
+    await runInit(cwd, YEAR, { interactive: false });
+    const after = hashTree(cwd);
+
+    const modifiedPaths = [...after.entries()]
+      .filter(([path, hash]) => before.get(path) !== hash)
+      .map(([path]) => path);
+    const removedPaths = [...before.keys()].filter((path) => !after.has(path));
+    expect([...modifiedPaths, ...removedPaths]).toStrictEqual([".repometa.json"]);
 
     const preservedForeign = foreign.map((rel) => readFileSync(join(cwd, rel), "utf8"));
     expect(preservedForeign).toStrictEqual(foreign.map((rel) => `foreign:${rel}\n`));

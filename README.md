@@ -26,10 +26,15 @@ is split between the CLI (mechanics) and an agent following [SKILL.md](SKILL.md)
 ## CLI
 
 ```bash
+standards init    # create .repometa.json interactively in a fresh repo
+                  #   --visibility oss|private   skip the prompt for visibility
+                  #   --since <int>              skip the prompt for the initial year
+                  #   --yes                      non-interactive (use defaults / flags only)
+                  #   --force                    overwrite an existing .repometa.json
 standards check   # report drift, exit 1 if any (part of agent:check)
 standards apply   # write managed files, seed missing ones, update branding, bump stamp
                   #   --from-version <int>    explicit baseline for pending-marker selection
-                  #   --emit-pending <path>   write a JSON marker describing pending judgement work
+                  #   --emit-pending <path>    write a JSON marker describing pending judgement work
 standards sync    # apply + run an agent (claude or codex) locally on the pending changelog entries
 ```
 
