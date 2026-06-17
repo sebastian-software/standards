@@ -1,6 +1,6 @@
 # 0008: Subprocess-based test for the CLI non-TTY guard
 
-**Plan status:** Not implemented
+**Plan status:** Implemented
 **Source:** /plan
 **Recommended workflow:** Feature (`/build`)
 
@@ -88,13 +88,13 @@ Not relevant.
 
 ## Acceptance criteria
 
-- [ ] A new test spawns `node dist/cli.js init --cwd <fixture>` with
+- [x] A new test spawns `node dist/cli.js init --cwd <fixture>` with
       `input: ""` and asserts non-zero exit.
-- [ ] The test asserts that stderr contains the `"No TTY"` substring.
-- [ ] `pnpm agent:check` passes.
-- [ ] The fixture directory is created via `mkdtempSync`; no leftover
+- [x] The test asserts that stderr contains the `"No TTY"` substring.
+- [x] `pnpm agent:check` passes.
+- [x] The fixture directory is created via `mkdtempSync`; no leftover
       state pollutes other tests.
-- [ ] No production-code file in `src/` is modified.
+- [x] No production-code file in `src/` is modified.
 
 ## Validation plan
 
@@ -149,3 +149,36 @@ Not relevant.
 - **Scope — hint:** Limited to the non-TTY guard; broader CLI smoke
   tests are out of scope for this PR but could grow later under the
   same describe block.
+
+## Test results
+
+**Date:** 2026-06-18
+**Validator:** `pnpm agent:check` (final run green)
+
+| Gate                                  | Status                              |
+| ------------------------------------- | ----------------------------------- |
+| oxlint + eslint                       | green, no warnings                  |
+| oxfmt format:check                    | green                               |
+| tsc (root + build)                    | green                               |
+| vitest                                | 41/41 tests passed                  |
+| `node dist/cli.js check` (self-check) | "Repository matches org standards." |
+
+One new test under `describe("standards init CLI guard", ...)` spawns
+the built CLI with piped stdin and asserts non-zero exit plus the
+`/No TTY/` marker on stderr.
+
+## Review findings
+
+**Date:** 2026-06-18
+**Reviewer:** workflow self-review (test-only addition)
+
+### Summary
+
+| Status                 | Count |
+| ---------------------- | ----: |
+| Resolved               |     0 |
+| Open / Not implemented |     0 |
+
+Keine Findings gefunden. Single subprocess assertion against the
+existing CLI guard; no production code changed, no shared helpers
+touched.
