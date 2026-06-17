@@ -184,6 +184,16 @@ function ensureGuard(cwd: string, force: boolean): void {
   );
 }
 
+/**
+ * Bootstraps a `.repometa.json` file in `cwd` interactively (with prompts on
+ * the supplied streams) or non-interactively (via flag-style options).
+ *
+ * Side effect for library callers: interactive mode opens a `readline/promises`
+ * interface on `options.streams` (defaulting to `process.stdin`/`process.stdout`)
+ * and closes it in the `finally` block. With the default streams, that close
+ * propagates to `process.stdin`, so the calling process cannot read from stdin
+ * afterwards. Pass explicit `options.streams` to keep `process.stdin` open.
+ */
 export async function runInit(
   cwd: string,
   currentYear: number,

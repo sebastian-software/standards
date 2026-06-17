@@ -24,7 +24,7 @@ import {
   parseVisibilityFlag,
   runInit,
 } from "../src/init.js";
-import { buildPendingPayload, writePending } from "../src/sync.js";
+import { assertPendingPayload, buildPendingPayload, writePending } from "../src/sync.js";
 
 const YEAR = 2026;
 
@@ -248,6 +248,81 @@ describe("buildPendingPayload", () => {
     const payload = unwrap(buildPendingPayload(cwd, 0));
     expect(payload.fromVersion).toBe(0);
     expect(payload.changes.length).toBeGreaterThan(0);
+  });
+});
+
+describe("assertPendingPayload", () => {
+  const validPayload = {
+    schemaVersion: 1,
+    fromVersion: 0,
+    toVersion: 2,
+    scopes: ["common", "node"],
+    visibility: "oss",
+    exceptions: [],
+    prompt: "prompt body",
+    changes: [
+      {
+        file: "0001-baseline.md",
+        version: 1,
+        scopes: ["common", "node"],
+        content: "changelog body",
+      },
+    ],
+  };
+
+  it("accepts a payload built by buildPendingPayload after a structured clone", () => {
+    const cwd = createFixtureRepo();
+    const payload = unwrap(buildPendingPayload(cwd, 0));
+    const clone: unknown = structuredClone(payload);
+    expect(() => {
+      assertPendingPayload(clone);
+    }).not.toThrow();
+  });
+
+  it("accepts a manually constructed valid payload with empty changes", () => {
+    const empty = { ...validPayload, changes: [] };
+    expect(() => {
+      assertPendingPayload(empty);
+    }).not.toThrow();
+  });
+
+  it("rejects a payload with the wrong schemaVersion", () => {
+    const bad = { ...validPayload, schemaVersion: 2 };
+    expect(() => {
+      assertPendingPayload(bad);
+    }).toThrow(/schemaVersion/);
+  });
+
+  it("rejects a payload with a missing required field", () => {
+    const { fromVersion, ...rest } = validPayload;
+    void fromVersion;
+    expect(() => {
+      assertPendingPayload(rest);
+    }).toThrow(/fromVersion/);
+  });
+
+  it("rejects a payload where scopes is not an array of strings", () => {
+    const bad = { ...validPayload, scopes: "common" };
+    expect(() => {
+      assertPendingPayload(bad);
+    }).toThrow(/scopes/);
+  });
+
+  it("rejects a payload with an unknown visibility value", () => {
+    const bad = { ...validPayload, visibility: "internal" };
+    expect(() => {
+      assertPendingPayload(bad);
+    }).toThrow(/visibility/);
+  });
+
+  it("rejects a payload with a malformed changes entry", () => {
+    const bad = {
+      ...validPayload,
+      changes: [{ file: "x.md", version: 1, scopes: ["common"] }],
+    };
+    expect(() => {
+      assertPendingPayload(bad);
+    }).toThrow(/changes\[0\]\.content/);
   });
 });
 

@@ -1,6 +1,6 @@
 # 0007: `assertPendingPayload` type guard plus `runInit` stdin documentation note
 
-**Plan status:** Not implemented
+**Plan status:** Implemented
 **Source:** /plan
 **Recommended workflow:** Feature (`/build`)
 
@@ -108,15 +108,15 @@ Not relevant.
 
 ## Acceptance criteria
 
-- [ ] `assertPendingPayload` is exported from `src/sync.ts` and accepts
+- [x] `assertPendingPayload` is exported from `src/sync.ts` and accepts
       a payload that round-trips through `JSON.parse(JSON.stringify(...))`.
-- [ ] `assertPendingPayload` rejects each of: wrong `schemaVersion`,
+- [x] `assertPendingPayload` rejects each of: wrong `schemaVersion`,
       missing `fromVersion`, non-array `scopes`, unknown `visibility`
       value, malformed `changes` entry.
-- [ ] `runInit` carries a JSDoc block that names the stdin-closure
+- [x] `runInit` carries a JSDoc block that names the stdin-closure
       side effect and recommends `options.streams` as the mitigation.
-- [ ] `pnpm agent:check` passes.
-- [ ] No new runtime dependency is added to `package.json`.
+- [x] `pnpm agent:check` passes.
+- [x] No new runtime dependency is added to `package.json`.
 
 ## Validation plan
 
@@ -175,3 +175,40 @@ Not relevant.
 - **Maintainability — hint:** `schemaVersion: 1` validation gives a
   clean migration path for any future `PendingPayload` revision; the
   JSDoc note makes a subtle runtime side effect explicit in source.
+
+## Test results
+
+**Date:** 2026-06-18
+**Validator:** `pnpm agent:check` (final run green)
+
+| Gate                                  | Status                              |
+| ------------------------------------- | ----------------------------------- |
+| oxlint + eslint                       | green, no warnings                  |
+| oxfmt format:check                    | green                               |
+| tsc (root + build)                    | green                               |
+| vitest                                | 47/47 tests passed                  |
+| `node dist/cli.js check` (self-check) | "Repository matches org standards." |
+
+Seven new tests in a dedicated `describe("assertPendingPayload", ...)`
+block cover the round-trip from `buildPendingPayload`, an empty
+`changes` array on a manually built payload, and five rejection paths
+(wrong `schemaVersion`, missing `fromVersion`, non-array `scopes`,
+unknown `visibility` value, malformed `changes[0]` entry).
+
+## Review findings
+
+**Date:** 2026-06-18
+**Reviewer:** workflow self-review
+
+### Summary
+
+| Status                 | Count |
+| ---------------------- | ----: |
+| Resolved               |     0 |
+| Open / Not implemented |     0 |
+
+Keine Findings gefunden. Type-guard splits into three small helpers to
+stay within the project's complexity/statement-count limits; tests use
+`structuredClone` per project lint preference. JSDoc note describes
+existing readline-closure behavior with the documented mitigation
+(`options.streams`).

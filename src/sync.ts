@@ -76,6 +76,87 @@ export type PendingPayload = {
   changes: PendingChange[];
 };
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
+}
+
+function isStringArray(value: unknown): value is string[] {
+  return Array.isArray(value) && value.every((entry) => typeof entry === "string");
+}
+
+function assertPendingChange(value: unknown, index: number): asserts value is PendingChange {
+  if (!isRecord(value)) {
+    throw new TypeError(`Invalid pending payload: changes[${String(index)}] is not an object.`);
+  }
+  if (typeof value.file !== "string") {
+    throw new TypeError(`Invalid pending payload: changes[${String(index)}].file is not a string.`);
+  }
+  if (typeof value.version !== "number") {
+    throw new TypeError(
+      `Invalid pending payload: changes[${String(index)}].version is not a number.`,
+    );
+  }
+  if (!isStringArray(value.scopes)) {
+    throw new TypeError(
+      `Invalid pending payload: changes[${String(index)}].scopes is not an array of strings.`,
+    );
+  }
+  if (typeof value.content !== "string") {
+    throw new TypeError(
+      `Invalid pending payload: changes[${String(index)}].content is not a string.`,
+    );
+  }
+}
+
+function assertPayloadHeader(value: Record<string, unknown>): void {
+  if (value.schemaVersion !== 1) {
+    throw new TypeError(
+      `Invalid pending payload: schemaVersion must be 1 (got ${JSON.stringify(value.schemaVersion)}).`,
+    );
+  }
+  if (typeof value.fromVersion !== "number") {
+    throw new TypeError("Invalid pending payload: fromVersion is not a number.");
+  }
+  if (typeof value.toVersion !== "number") {
+    throw new TypeError("Invalid pending payload: toVersion is not a number.");
+  }
+}
+
+function assertPayloadMeta(value: Record<string, unknown>): void {
+  if (!isStringArray(value.scopes)) {
+    throw new TypeError("Invalid pending payload: scopes is not an array of strings.");
+  }
+  if (value.visibility !== "oss" && value.visibility !== "private") {
+    throw new TypeError(
+      `Invalid pending payload: visibility must be "oss" or "private" (got ${JSON.stringify(value.visibility)}).`,
+    );
+  }
+  if (!isStringArray(value.exceptions)) {
+    throw new TypeError("Invalid pending payload: exceptions is not an array of strings.");
+  }
+}
+
+function assertPayloadBody(value: Record<string, unknown>): void {
+  if (typeof value.prompt !== "string") {
+    throw new TypeError("Invalid pending payload: prompt is not a string.");
+  }
+  if (!Array.isArray(value.changes)) {
+    throw new TypeError("Invalid pending payload: changes is not an array.");
+  }
+  value.changes.forEach((entry, index) => {
+    assertPendingChange(entry, index);
+  });
+}
+
+export function assertPendingPayload(value: unknown): asserts value is PendingPayload {
+  if (!isRecord(value)) {
+    throw new TypeError("Invalid pending payload: expected an object.");
+  }
+  assertPayloadHeader(value);
+  assertPayloadMeta(value);
+  assertPayloadBody(value);
+}
+
 export function buildPendingPayload(cwd: string, fromVersion: number): PendingPayload | undefined {
   const packageRoot = getPackageRoot();
   const manifest = loadManifest(packageRoot);
