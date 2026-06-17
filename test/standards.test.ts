@@ -330,7 +330,8 @@ describe("assertPendingPayload", () => {
 describe("writePending", () => {
   it("writes the schema-versioned marker at the resolved path", () => {
     const cwd = createFixtureRepo();
-    writePending(cwd, ".standards/pending.json", 0);
+    const payload = buildPendingPayload(cwd, 0);
+    writePending(cwd, ".standards/pending.json", payload);
 
     const path = join(cwd, ".standards/pending.json");
     expect(existsSync(path)).toBe(true);
@@ -338,28 +339,51 @@ describe("writePending", () => {
     expect(parsed).toMatchObject({ schemaVersion: 1, fromVersion: 0 });
   });
 
-  it("removes a stale marker when no changes are pending", () => {
+  it("removes a stale marker when no payload is pending", () => {
     const cwd = createFixtureRepo();
     runApply(cwd, YEAR);
-    const stamp = readStamp(cwd);
     const path = join(cwd, ".standards/pending.json");
     mkdirSync(join(cwd, ".standards"), { recursive: true });
     writeFileSync(path, "{}\n", "utf8");
 
-    writePending(cwd, ".standards/pending.json", stamp);
+    writePending(cwd, ".standards/pending.json", undefined);
 
     expect(existsSync(path)).toBe(false);
   });
 
-  it("is a no-op when no changes are pending and no marker exists", () => {
+  it("is a no-op when no payload is pending and no marker exists", () => {
     const cwd = createFixtureRepo();
     runApply(cwd, YEAR);
-    const stamp = readStamp(cwd);
     const path = join(cwd, ".standards/pending.json");
 
-    writePending(cwd, ".standards/pending.json", stamp);
+    writePending(cwd, ".standards/pending.json", undefined);
 
     expect(existsSync(path)).toBe(false);
+  });
+});
+
+describe("preReadMeta threading", () => {
+  it("runApply with and without preReadMeta produces identical changes", () => {
+    const cwdA = createFixtureRepo();
+    const cwdB = createFixtureRepo();
+    const meta = { standards: 0, visibility: "oss" as const, since: 2020 };
+
+    const changesDefault = runApply(cwdA, YEAR);
+    const changesParameterized = runApply(cwdB, YEAR, meta);
+
+    expect(
+      changesParameterized.map((change) => change.path).sort((a, b) => a.localeCompare(b)),
+    ).toStrictEqual(changesDefault.map((change) => change.path).sort((a, b) => a.localeCompare(b)));
+  });
+
+  it("buildPendingPayload with and without preReadMeta produces identical payloads", () => {
+    const cwd = createFixtureRepo();
+    const meta = { standards: 0, visibility: "oss" as const, since: 2020 };
+
+    const payloadWithoutMeta = unwrap(buildPendingPayload(cwd, 0));
+    const payloadWithMeta = unwrap(buildPendingPayload(cwd, 0, meta));
+
+    expect(payloadWithMeta).toStrictEqual(payloadWithoutMeta);
   });
 });
 
