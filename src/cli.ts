@@ -90,12 +90,27 @@ function reportApplied(changes: ReturnType<typeof runApply>): void {
   }
 }
 
-async function initCommand(cwd: string, currentYear: number, args: string[]): Promise<void> {
+function readStdinIsTty(): boolean {
+  // Node's types narrow `isTTY` to `true | undefined`, but the runtime contract
+  // is the broader `boolean | undefined`. Widen via a typed indirection so the
+  // nullish-coalescing fallback is semantically required.
+  const stream: { isTTY?: boolean | undefined } = process.stdin;
+  return stream.isTTY ?? false;
+}
+
+export type InitCommandContext = {
+  cwd: string;
+  currentYear: number;
+  args: string[];
+  isTty: boolean;
+};
+
+export async function initCommand(context: InitCommandContext): Promise<void> {
+  const { cwd, currentYear, args, isTty } = context;
   const yes = hasFlag(args, "--yes");
   const force = hasFlag(args, "--force");
   const visibility = getVisibilityFlag(args);
   const since = getSinceFlag(args, currentYear);
-  const isTty = process.stdin.isTTY;
 
   if (!yes && !isTty) {
     throw new InitError(
@@ -222,7 +237,8 @@ async function main(): Promise<void> {
 
   switch (command) {
     case "init": {
-      await initCommand(cwd, currentYear, rest);
+      const isTty = readStdinIsTty();
+      await initCommand({ cwd, currentYear, args: rest, isTty });
       break;
     }
     case "apply": {
