@@ -318,6 +318,21 @@ function createFreshDir(): string {
   return mkdtempSync(join(tmpdir(), "standards-init-"));
 }
 
+function runGit(cwd: string, args: string[], env?: NodeJS.ProcessEnv): void {
+  const result = spawnSync("git", ["-C", cwd, ...args], {
+    encoding: "utf8",
+    env,
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+  if (result.error !== undefined) {
+    throw new Error(`git ${args.join(" ")} failed to spawn: ${result.error.message}`);
+  }
+  if (result.status !== 0) {
+    const stderr = result.stderr.trim();
+    throw new Error(`git ${args.join(" ")} exited with status ${String(result.status)}: ${stderr}`);
+  }
+}
+
 function initGitRepo(cwd: string, commitYear: number): void {
   const env = {
     ...process.env,
@@ -328,10 +343,10 @@ function initGitRepo(cwd: string, commitYear: number): void {
     GIT_AUTHOR_DATE: `${String(commitYear)}-01-15T12:00:00`,
     GIT_COMMITTER_DATE: `${String(commitYear)}-01-15T12:00:00`,
   };
-  spawnSync("git", ["-C", cwd, "init", "--quiet", "--initial-branch=main"], { env });
+  runGit(cwd, ["init", "--quiet", "--initial-branch=main"], env);
   writeFileSync(join(cwd, "README.md"), "# fixture\n");
-  spawnSync("git", ["-C", cwd, "add", "README.md"], { env });
-  spawnSync("git", ["-C", cwd, "commit", "--quiet", "-m", "initial"], { env });
+  runGit(cwd, ["add", "README.md"], env);
+  runGit(cwd, ["commit", "--quiet", "-m", "initial"], env);
 }
 
 describe("parseVisibilityFlag", () => {
