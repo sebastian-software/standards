@@ -43,7 +43,7 @@ export function readRepoMeta(cwd: string): RepoMeta {
 
 export function writeRepoMeta(cwd: string, meta: RepoMeta): void {
   const path = join(cwd, REPO_META_FILE);
-  writeFileSync(path, `${JSON.stringify(meta, undefined, 2)}\n`);
+  writeFileSync(path, `${JSON.stringify(meta, undefined, 2)}\n`, "utf8");
 }
 
 export function detectScopes(cwd: string, manifest: Manifest): string[] {

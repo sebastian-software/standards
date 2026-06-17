@@ -16,7 +16,7 @@ export type Change = {
 function writeTarget(cwd: string, target: string, content: string): void {
   const path = join(cwd, target);
   mkdirSync(dirname(path), { recursive: true });
-  writeFileSync(path, content);
+  writeFileSync(path, content, "utf8");
 }
 
 function applyManaged(context: SyncContext, scope: ScopeSpec): Change[] {
@@ -53,7 +53,7 @@ function applySections(context: SyncContext, scope: ScopeSpec): Change[] {
     if (result.action === "unchanged") {
       return [];
     }
-    writeFileSync(join(context.cwd, section.file), result.content);
+    writeFileSync(join(context.cwd, section.file), result.content, "utf8");
     return [{ path: section.file, action: result.action }];
   });
 }

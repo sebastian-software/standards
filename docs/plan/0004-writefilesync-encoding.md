@@ -1,6 +1,6 @@
 # 0004: Consistent `writeFileSync` encoding across the codebase
 
-**Plan status:** Not implemented
+**Plan status:** Implemented
 **Source:** /plan
 **Recommended workflow:** Refactoring (`/refactor`)
 
@@ -78,10 +78,10 @@ Not relevant.
 
 ## Acceptance criteria
 
-- [ ] All three production `writeFileSync` call sites for string content
+- [x] All three production `writeFileSync` call sites for string content
       include `"utf8"` as the encoding argument.
-- [ ] `pnpm agent:check` passes; the existing 40 tests stay green.
-- [ ] `grep -n 'writeFileSync(' src/` shows no call without an encoding
+- [x] `pnpm agent:check` passes; the existing 40 tests stay green.
+- [x] `grep -n 'writeFileSync(' src/` shows no call without an encoding
       argument when the content is a string.
 
 ## Validation plan
@@ -134,3 +134,32 @@ Not relevant.
   left alone to keep the PR small and focused on production source.
 - **Maintainability — hint:** Explicit `"utf8"` signals intent and
   prevents accidental Buffer-vs-string drift in future edits.
+
+## Test results
+
+**Date:** 2026-06-18
+**Validator:** `pnpm agent:check` (final run green)
+
+| Gate                                  | Status                              |
+| ------------------------------------- | ----------------------------------- |
+| oxlint + eslint                       | green, no warnings                  |
+| oxfmt format:check                    | green                               |
+| tsc (root + build)                    | green                               |
+| vitest                                | 40/40 tests passed                  |
+| `node dist/cli.js check` (self-check) | "Repository matches org standards." |
+
+No new tests required; existing apply and repo-meta tests already cover both writers.
+
+## Review findings
+
+**Date:** 2026-06-18
+**Reviewer:** workflow self-review (mechanical change)
+
+### Summary
+
+| Status                 | Count |
+| ---------------------- | ----: |
+| Resolved               |     0 |
+| Open / Not implemented |     0 |
+
+Keine Findings gefunden. Three identical mechanical replacements (`writeFileSync(path, content)` → `writeFileSync(path, content, "utf8")`); full reviewer pass omitted because there is nothing meaningful to assess beyond what the validator gates already covered.
