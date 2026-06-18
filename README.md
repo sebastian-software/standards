@@ -127,6 +127,12 @@ pnpm agent:check   # lint + format + typecheck + build + test + self-check
 This repository applies its own standards (`standards check` runs against it
 in CI).
 
+## Onboarding a new repo
+
+The step-by-step procedure for adding a new repo to the standards system
+(new repo or legacy migration, GitHub or Forgejo) lives in
+[`docs/runbooks/onboard-repo.md`](docs/runbooks/onboard-repo.md).
+
 ## License
 
 [MIT](LICENSE)
