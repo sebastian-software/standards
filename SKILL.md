@@ -19,9 +19,8 @@ the CLI for mechanics, use judgement only where the changelogs require it.
 
 ## Workflow
 
-1. Run `standards check` (CLI of this package; `pnpm dlx @sebastian-software/standards check`
-   in repos that do not have it as a devDependency). If it reports nothing,
-   you are done.
+1. Run `pnpm dlx @sebastian-software/standards check`. If it reports
+   nothing, you are done.
 2. Run `standards apply`. It writes managed files, seeds missing ones, updates
    branding sections and bumps the stamp. This covers the mechanical part only.
 3. Read every entry in `changes/` with a number greater than the repo's

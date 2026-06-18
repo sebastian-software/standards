@@ -68,8 +68,9 @@ standards apply   # write managed files, seed missing ones, update branding, bum
 standards sync    # apply + run an agent (claude or codex) locally on the pending changelog entries
 ```
 
-Node repositories consume this package as a devDependency; other stacks run it
-via `pnpm dlx @sebastian-software/standards check`.
+All managed repositories invoke this package via
+`pnpm dlx @sebastian-software/standards`; no devDependency installation is
+required, regardless of stack.
 
 ## Renovate-driven workflow
 
