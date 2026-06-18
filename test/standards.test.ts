@@ -140,9 +140,9 @@ describe("selectChanges and buildPrompt", () => {
       1, 2, 3,
     ]);
     expect(selectChanges(root, 1, ["common", "node"]).map((entry) => entry.version)).toStrictEqual([
-      2, 3,
+      2, 3, 4,
     ]);
-    expect(selectChanges(root, 3, ["common", "node"])).toHaveLength(0);
+    expect(selectChanges(root, 4, ["common", "node"])).toHaveLength(0);
     expect(selectChanges(root, 0, ["rust"])).toHaveLength(0);
   });
 
@@ -601,33 +601,46 @@ function createPlatformFixture(platform: "forgejo" | "github" | undefined): stri
 }
 
 describe("platform filter in runApply and runCheck", () => {
-  const seededCiPath = ".github/workflows/ci.yml";
+  const githubCiPath = ".github/workflows/ci.yml";
+  const forgejoCiPath = ".forgejo/workflows/ci.yml";
 
   it("writes the github-scoped CI workflow on a github repo", () => {
     const cwd = createPlatformFixture("github");
     runApply(cwd, YEAR);
-    expect(existsSync(join(cwd, seededCiPath))).toBe(true);
+    expect(existsSync(join(cwd, githubCiPath))).toBe(true);
+    expect(existsSync(join(cwd, forgejoCiPath))).toBe(false);
   });
 
-  it("skips the github-scoped CI workflow on a forgejo repo", () => {
+  it("writes the forgejo-scoped CI workflow on a forgejo repo", () => {
     const cwd = createPlatformFixture("forgejo");
     runApply(cwd, YEAR);
-    expect(existsSync(join(cwd, seededCiPath))).toBe(false);
+    expect(existsSync(join(cwd, forgejoCiPath))).toBe(true);
+    expect(existsSync(join(cwd, githubCiPath))).toBe(false);
   });
 
   it("skips every platform-scoped entry on a legacy repo and refuses to bump the stamp", () => {
     const cwd = createPlatformFixture(undefined);
     const changes = runApply(cwd, YEAR);
-    expect(existsSync(join(cwd, seededCiPath))).toBe(false);
+    expect(existsSync(join(cwd, githubCiPath))).toBe(false);
+    expect(existsSync(join(cwd, forgejoCiPath))).toBe(false);
     expect(changes.find((change) => change.path === ".repometa.json")).toBeUndefined();
     expect(readStamp(cwd)).toBe(0);
   });
 
-  it("reports no drift for filtered-out entries", () => {
+  it("reports no drift for filtered-out entries on a forgejo repo", () => {
     const cwd = createPlatformFixture("forgejo");
     runApply(cwd, YEAR);
     const findings = runCheck(cwd, YEAR);
-    expect(findings.find((f) => f.path === seededCiPath)).toBeUndefined();
+    expect(findings.find((f) => f.path === githubCiPath)).toBeUndefined();
+    expect(findings.find((f) => f.path === forgejoCiPath)).toBeUndefined();
+  });
+
+  it("reports no drift for filtered-out entries on a github repo", () => {
+    const cwd = createPlatformFixture("github");
+    runApply(cwd, YEAR);
+    const findings = runCheck(cwd, YEAR);
+    expect(findings.find((f) => f.path === githubCiPath)).toBeUndefined();
+    expect(findings.find((f) => f.path === forgejoCiPath)).toBeUndefined();
   });
 
   it("reports a stamp finding for legacy repos missing platform when platform-scoped entries exist", () => {
