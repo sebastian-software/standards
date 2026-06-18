@@ -147,3 +147,78 @@ named CI check to pass, require branches up to date, disallow force pushes
 and deletions. Verification on Forgejo is deferred until the first Forgejo
 consumer repo opts in; once it does, mirror the GitHub setup above and
 record the exact API payload here.
+
+## Pull-mode agent wiring (open)
+
+The contract from `changes/0002-renovate-pending.md` makes
+`.standards/pending.json` the only on-branch indicator for open
+judgement steps. As long as no external agent listens for the marker
+(or the `standards:needs-agent` label), every drift PR sits with red CI
+and the cycle stays formally open.
+
+> **Status:** as long as the agent is not wired, the final merge — until
+> `.standards/pending.json` is gone — is **manual**. A maintainer can
+> always work the changelog steps locally as a fallback (`standards sync`).
+
+The agent configuration itself lives outside this repo. This section
+keeps the gap visible and pins the contract so the wiring effort
+(OpenClaw / Claude Code / Codex installation) has a stable target.
+
+### Two runs, one external wiring
+
+The external agent infrastructure (webhook receiver or poller) handles
+two routing paths, each a separate run with a fresh context — no memory
+transfer between runs:
+
+1. **Agent run 1 — mechanics.** Triggered by label
+   `standards:needs-agent` or by the presence of
+   `.standards/pending.json` in the PR diff. Reads `pending.json`,
+   performs the judgement steps, commits to the PR branch, deletes
+   `pending.json`, removes the `standards:needs-agent` label, and sets
+   `standards:needs-review` (and/or writes
+   `.standards/review-pending.json`) as the last step.
+2. **Agent run 2 — semantic pre-check.** Triggered by label
+   `standards:needs-review` or by `.standards/review-pending.json`. Reads
+   the PR diff, the relevant changelog entries, `SKILL.md`, and
+   `.repometa.json` (including `exceptions`) — nothing else. Posts a PR
+   comment per the output contract below. Removes the
+   `standards:needs-review` label and the marker file at the end.
+
+On Forgejo, label setting is unreliable; the marker file
+(`.standards/pending.json` for run 1, `.standards/review-pending.json`
+for run 2) is the **primary** signal. The labels are an optimization
+for GitHub.
+
+### Agent run 2 — output contract
+
+Run 2 posts exactly one PR comment with four sections, in order:
+
+- **(a) Summary of agent changes.** Which files were modified, mapped
+  to the judgement steps from which changelog.
+- **(b) SKILL.md consistency check.** Tabular pass/fail per rule
+  (Prettier reintroduction, branding markers intact, `exceptions`
+  respected, seeded-vs-managed contract upheld).
+- **(c) Judgement step verdicts.** Each step from each changelog with
+  one of `ok` / `check` (the latter for steps the agent could not
+  definitively verify).
+- **(d) Recommendation.** Exactly one of `merge` or `hold`, with a
+  one-sentence reason.
+
+The prompt template for run 2 is checked in at
+`reference/agent/review-prompt.md` so the external wiring uses a
+versioned template (analog to how `SKILL.md` anchors the run-1 prompt
+indirectly via the `buildPrompt` output).
+
+### Fallback
+
+If run 2 fails (agent system down, label stuck, marker file deleted by
+a rebase), the maintainer does the review manually against the SKILL.md
+rules and merges without the LLM pre-comment. The merge policy stays
+the same: humans always merge.
+
+### External wiring follow-up
+
+The external wiring (webhook receiver, prompt routing, secrets) is
+tracked outside this repo. One follow-up ticket covers both runs — they
+share the same infrastructure, only the trigger path and prompt mode
+differ. Link to the external ticket goes here once it exists.
