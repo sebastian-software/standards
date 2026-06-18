@@ -39,6 +39,14 @@ the CLI for mechanics, use judgement only where the changelogs require it.
   uses Prettier, migrating away from it is part of the job (see change 0001).
 - **Seeded files are owned by the repo.** Do not overwrite local adaptations —
   merge the intent of the change into them instead.
+- **Every content change to a seeded file requires a judgement step in
+  the changelog that describes the merge strategy.** Without an explicit
+  step, the change does not propagate to existing repos because
+  `standards apply` never re-writes seeded files after first creation
+  (see `src/apply.ts` `applySeeded`). Examples of what to spell out: new
+  CI step to merge in, new ESLint rule, additional `cspell.json`
+  dictionary entry, extra `.oxfmtignore` pattern. State which lines come
+  from the reference file and which repo-specific lines stay untouched.
 - **Branding sections are owned by the standards.** Never hand-edit content
   between `<!-- sebastian-software-branding:start/end -->` markers; never
   remove the markers. `visibility: private` repos get the plain copyright
