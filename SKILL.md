@@ -79,3 +79,32 @@ use the `github>` prefix:
 The seeded `renovate.json` in this package already uses the canonical
 form, so once a repo is past onboarding, `standards apply` keeps it
 correct.
+
+## Merge policy
+
+The final merge of a `standards:` PR is **always a human step**. Automerge
+is explicitly disabled for this PR class.
+
+Reason: every standards update can implicitly shift tool behavior broadly
+(linter, formatter, CI rules); a human eye at the end is the cheapest
+insurance against hallucinations or training-data drift in the agent or
+review LLM. The `standards` package rule in the org Renovate preset stays
+without `automerge: true` for exactly this reason; do not add it "for
+consistency".
+
+Pipeline order for a `standards:` PR:
+
+1. Renovate opens the bump PR.
+2. **Agent run 1 — mechanics:** the external pull-mode agent works
+   through `.standards/pending.json`, commits the judgement changes to
+   the branch, deletes the marker, removes the `standards:needs-agent`
+   label, and sets `standards:needs-review`.
+3. **Agent run 2 — semantic pre-check:** the same agent runs with a
+   fresh context, reads the resulting diff plus the relevant SKILL/
+   changelog material, and posts a PR comment summarizing changes,
+   verifying SKILL.md rules, and recommending `merge` or `hold`.
+4. **Human review:** maintainer reads the comment plus the diff and
+   merges manually.
+
+Until agent run 2 is wired, the maintainer reviews the diff manually
+against the SKILL.md rules without an LLM pre-comment.
