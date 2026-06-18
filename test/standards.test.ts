@@ -19,13 +19,21 @@ import { runCheck } from "../src/check.js";
 import { initCommand } from "../src/cli.js";
 import {
   detectFirstCommitYear,
+  detectPlatform,
   InitError,
+  parsePlatformChoice,
+  parsePlatformFlag,
   parseSinceFlag,
   parseVisibilityChoice,
   parseVisibilityFlag,
   runInit,
 } from "../src/init.js";
-import { assertPendingPayload, buildPendingPayload, writePending } from "../src/sync.js";
+import {
+  assertPendingPayload,
+  buildPendingPayload,
+  matchesPlatform,
+  writePending,
+} from "../src/sync.js";
 
 const YEAR = 2026;
 
@@ -73,7 +81,7 @@ function createFixtureRepo(): string {
   writeFileSync(join(cwd, "README.md"), "# Demo\n");
   writeFileSync(
     join(cwd, ".repometa.json"),
-    `${JSON.stringify({ standards: 0, visibility: "oss", since: 2020 }, undefined, 2)}\n`,
+    `${JSON.stringify({ standards: 0, visibility: "oss", since: 2020, platform: "github" }, undefined, 2)}\n`,
   );
   return cwd;
 }
@@ -128,11 +136,13 @@ describe("selectChanges and buildPrompt", () => {
     const { getPackageRoot } = await import("../src/manifest.js");
     const root = getPackageRoot();
 
-    expect(selectChanges(root, 0, ["common"]).map((entry) => entry.version)).toStrictEqual([1, 2]);
-    expect(selectChanges(root, 1, ["common", "node"]).map((entry) => entry.version)).toStrictEqual([
-      2,
+    expect(selectChanges(root, 0, ["common"]).map((entry) => entry.version)).toStrictEqual([
+      1, 2, 3,
     ]);
-    expect(selectChanges(root, 2, ["common", "node"])).toHaveLength(0);
+    expect(selectChanges(root, 1, ["common", "node"]).map((entry) => entry.version)).toStrictEqual([
+      2, 3,
+    ]);
+    expect(selectChanges(root, 3, ["common", "node"])).toHaveLength(0);
     expect(selectChanges(root, 0, ["rust"])).toHaveLength(0);
   });
 
@@ -154,6 +164,7 @@ describe("selectChanges and buildPrompt", () => {
     expect(prompt).toContain("repository standards — agent instructions");
     expect(prompt).toContain("0001-baseline.md");
     expect(prompt).toContain("0002-renovate-pending.md");
+    expect(prompt).toContain("0003-platform-aware-ci.md");
     expect(prompt).toContain("visibility: oss");
   });
 });
@@ -208,6 +219,7 @@ const CONTRACT_PREFIXES = [
   ".repometa.json",
   "README.md",
   ".standards/",
+  ".github/",
 ];
 
 function withinContract(path: string): boolean {
@@ -366,7 +378,12 @@ describe("preReadMeta threading", () => {
   it("runApply with and without preReadMeta produces identical changes", () => {
     const cwdA = createFixtureRepo();
     const cwdB = createFixtureRepo();
-    const meta = { standards: 0, visibility: "oss" as const, since: 2020 };
+    const meta = {
+      standards: 0,
+      visibility: "oss" as const,
+      since: 2020,
+      platform: "github" as const,
+    };
 
     const changesDefault = runApply(cwdA, YEAR);
     const changesParameterized = runApply(cwdB, YEAR, meta);
@@ -378,7 +395,12 @@ describe("preReadMeta threading", () => {
 
   it("buildPendingPayload with and without preReadMeta produces identical payloads", () => {
     const cwd = createFixtureRepo();
-    const meta = { standards: 0, visibility: "oss" as const, since: 2020 };
+    const meta = {
+      standards: 0,
+      visibility: "oss" as const,
+      since: 2020,
+      platform: "github" as const,
+    };
 
     const payloadWithoutMeta = unwrap(buildPendingPayload(cwd, 0));
     const payloadWithMeta = unwrap(buildPendingPayload(cwd, 0, meta));
@@ -502,6 +524,143 @@ describe("parseSinceFlag", () => {
   });
 });
 
+describe("parsePlatformFlag", () => {
+  it("accepts the two long forms", () => {
+    expect(parsePlatformFlag("github")).toBe("github");
+    expect(parsePlatformFlag("forgejo")).toBe("forgejo");
+  });
+
+  it("rejects short forms and unknown values", () => {
+    expect(() => parsePlatformFlag("g")).toThrow(InitError);
+    expect(() => parsePlatformFlag("f")).toThrow(InitError);
+    expect(() => parsePlatformFlag("gitlab")).toThrow(InitError);
+    expect(() => parsePlatformFlag("")).toThrow(InitError);
+  });
+});
+
+describe("parsePlatformChoice", () => {
+  it("accepts short and long forms case-insensitive and trimmed", () => {
+    expect(parsePlatformChoice("g")).toBe("github");
+    expect(parsePlatformChoice("G")).toBe("github");
+    expect(parsePlatformChoice("github")).toBe("github");
+    expect(parsePlatformChoice("GITHUB")).toBe("github");
+    expect(parsePlatformChoice(" github ")).toBe("github");
+    expect(parsePlatformChoice("f")).toBe("forgejo");
+    expect(parsePlatformChoice("forgejo")).toBe("forgejo");
+  });
+
+  it("returns undefined for unrelated input", () => {
+    expect(parsePlatformChoice("gitlab")).toBeUndefined();
+    expect(parsePlatformChoice("1")).toBeUndefined();
+  });
+});
+
+describe("detectPlatform", () => {
+  it("returns forgejo for a non-git directory", () => {
+    const cwd = createFreshDir();
+    expect(detectPlatform(cwd)).toBe("forgejo");
+  });
+
+  it("returns github when origin URL contains github.com", () => {
+    const cwd = createFreshDir();
+    spawnSync("git", ["-C", cwd, "init", "--quiet", "--initial-branch=main"]);
+    spawnSync("git", [
+      "-C",
+      cwd,
+      "remote",
+      "add",
+      "origin",
+      "https://github.com/example/example.git",
+    ]);
+    expect(detectPlatform(cwd)).toBe("github");
+  });
+
+  it("returns forgejo for any other origin URL", () => {
+    const cwd = createFreshDir();
+    spawnSync("git", ["-C", cwd, "init", "--quiet", "--initial-branch=main"]);
+    spawnSync("git", [
+      "-C",
+      cwd,
+      "remote",
+      "add",
+      "origin",
+      "https://forgejo.example.com/example/example.git",
+    ]);
+    expect(detectPlatform(cwd)).toBe("forgejo");
+  });
+});
+
+function createPlatformFixture(platform: "forgejo" | "github" | undefined): string {
+  const cwd = mkdtempSync(join(tmpdir(), "standards-platform-"));
+  writeFileSync(join(cwd, "package.json"), "{}\n");
+  writeFileSync(join(cwd, "README.md"), "# Demo\n");
+  const meta: Record<string, unknown> = { standards: 0, visibility: "oss", since: 2020 };
+  if (platform !== undefined) meta.platform = platform;
+  writeFileSync(join(cwd, ".repometa.json"), `${JSON.stringify(meta, undefined, 2)}\n`);
+  return cwd;
+}
+
+describe("platform filter in runApply and runCheck", () => {
+  const seededCiPath = ".github/workflows/ci.yml";
+
+  it("writes the github-scoped CI workflow on a github repo", () => {
+    const cwd = createPlatformFixture("github");
+    runApply(cwd, YEAR);
+    expect(existsSync(join(cwd, seededCiPath))).toBe(true);
+  });
+
+  it("skips the github-scoped CI workflow on a forgejo repo", () => {
+    const cwd = createPlatformFixture("forgejo");
+    runApply(cwd, YEAR);
+    expect(existsSync(join(cwd, seededCiPath))).toBe(false);
+  });
+
+  it("skips every platform-scoped entry on a legacy repo and refuses to bump the stamp", () => {
+    const cwd = createPlatformFixture(undefined);
+    const changes = runApply(cwd, YEAR);
+    expect(existsSync(join(cwd, seededCiPath))).toBe(false);
+    expect(changes.find((change) => change.path === ".repometa.json")).toBeUndefined();
+    expect(readStamp(cwd)).toBe(0);
+  });
+
+  it("reports no drift for filtered-out entries", () => {
+    const cwd = createPlatformFixture("forgejo");
+    runApply(cwd, YEAR);
+    const findings = runCheck(cwd, YEAR);
+    expect(findings.find((f) => f.path === seededCiPath)).toBeUndefined();
+  });
+
+  it("reports a stamp finding for legacy repos missing platform when platform-scoped entries exist", () => {
+    const cwd = createPlatformFixture(undefined);
+    const findings = runCheck(cwd, YEAR);
+    const missing = findings.find((f) => f.detail.includes("platform is missing"));
+    expect(missing).toBeDefined();
+  });
+});
+
+describe("matchesPlatform", () => {
+  it("entries without platform apply to every repo", () => {
+    expect(matchesPlatform(undefined, "github")).toBe(true);
+    expect(matchesPlatform(undefined, "forgejo")).toBe(true);
+    expect(matchesPlatform(undefined, undefined)).toBe(true);
+  });
+
+  it("matching platforms apply", () => {
+    expect(matchesPlatform("github", "github")).toBe(true);
+    expect(matchesPlatform("forgejo", "forgejo")).toBe(true);
+  });
+
+  it("mismatched platforms are skipped", () => {
+    expect(matchesPlatform("github", "forgejo")).toBe(false);
+    expect(matchesPlatform("forgejo", "github")).toBe(false);
+  });
+
+  it("legacy meta (no platform) skips every platform-scoped entry", () => {
+    expect(matchesPlatform("github", undefined)).toBe(false);
+    expect(matchesPlatform("forgejo", undefined)).toBe(false);
+  });
+});
+
 describe("detectFirstCommitYear", () => {
   it("returns undefined for a non-git directory", () => {
     const cwd = createFreshDir();
@@ -527,9 +686,15 @@ describe("runInit", () => {
     const meta = await runInit(cwd, YEAR, {
       visibility: "private",
       since: 2024,
+      platform: "github",
       interactive: false,
     });
-    expect(meta).toStrictEqual({ standards: 0, visibility: "private", since: 2024 });
+    expect(meta).toStrictEqual({
+      standards: 0,
+      visibility: "private",
+      since: 2024,
+      platform: "github",
+    });
 
     const onDisk: unknown = JSON.parse(readFileSync(join(cwd, ".repometa.json"), "utf8"));
     expect(onDisk).toStrictEqual(meta);
@@ -538,7 +703,12 @@ describe("runInit", () => {
   it("applies defaults when no options are passed and cwd is non-git", async () => {
     const cwd = createFreshDir();
     const meta = await runInit(cwd, YEAR, { interactive: false });
-    expect(meta).toStrictEqual({ standards: 0, visibility: "oss", since: YEAR });
+    expect(meta).toStrictEqual({
+      standards: 0,
+      visibility: "oss",
+      since: YEAR,
+      platform: "forgejo",
+    });
   });
 
   it("uses the git root-commit year for the since default", async () => {
@@ -546,6 +716,21 @@ describe("runInit", () => {
     initGitRepo(cwd, 2020);
     const meta = await runInit(cwd, YEAR, { interactive: false });
     expect(meta.since).toBe(2020);
+  });
+
+  it("detects platform from origin URL in non-interactive mode", async () => {
+    const cwd = createFreshDir();
+    spawnSync("git", ["-C", cwd, "init", "--quiet", "--initial-branch=main"]);
+    spawnSync("git", [
+      "-C",
+      cwd,
+      "remote",
+      "add",
+      "origin",
+      "https://github.com/example/example.git",
+    ]);
+    const meta = await runInit(cwd, YEAR, { interactive: false });
+    expect(meta.platform).toBe("github");
   });
 
   it("refuses to overwrite an existing file without force", async () => {
@@ -600,12 +785,19 @@ describe("runInit interactive prompt loop", () => {
       interactive: true,
       streams: { input, output },
     });
-    void feedInput(input, ["p", "2018"]);
+    void feedInput(input, ["p", "2018", "g"]);
 
     const meta = await initPromise;
-    expect(meta).toStrictEqual({ standards: 0, visibility: "private", since: 2018 });
+    expect(meta).toStrictEqual({
+      standards: 0,
+      visibility: "private",
+      since: 2018,
+      platform: "github",
+    });
     expect(captured.current).toContain("Repository visibility");
     expect(captured.current).toContain("(o) open source");
+    expect(captured.current).toContain("Repository platform");
+    expect(captured.current).toContain("(g) GitHub");
   });
 
   it("applies defaults on empty input", async () => {
@@ -615,10 +807,15 @@ describe("runInit interactive prompt loop", () => {
       interactive: true,
       streams: { input, output },
     });
-    void feedInput(input, ["", ""]);
+    void feedInput(input, ["", "", ""]);
 
     const meta = await initPromise;
-    expect(meta).toStrictEqual({ standards: 0, visibility: "oss", since: YEAR });
+    expect(meta).toStrictEqual({
+      standards: 0,
+      visibility: "oss",
+      since: YEAR,
+      platform: "forgejo",
+    });
   });
 
   it("re-prompts after invalid visibility, then accepts a valid value", async () => {
@@ -627,6 +824,7 @@ describe("runInit interactive prompt loop", () => {
     const initPromise = runInit(cwd, YEAR, {
       interactive: true,
       streams: { input, output },
+      platform: "github",
     });
     void feedInput(input, ["x", "oss", "2020"]);
 
@@ -641,6 +839,7 @@ describe("runInit interactive prompt loop", () => {
     const initPromise = runInit(cwd, YEAR, {
       interactive: true,
       streams: { input, output },
+      platform: "github",
     });
     void feedInput(input, ["o", "1999", "2020"]);
 
@@ -672,6 +871,18 @@ describe("runInit interactive prompt loop", () => {
     void feedInput(input, ["o", "abc", "1999", "99999"]);
 
     await expect(initPromise).rejects.toThrow(/Too many invalid attempts for initial year/);
+  });
+
+  it("aborts after 3 invalid platform attempts", async () => {
+    const cwd = createFreshDir();
+    const { input, output } = createCapturedStreams();
+    const initPromise = runInit(cwd, YEAR, {
+      interactive: true,
+      streams: { input, output },
+    });
+    void feedInput(input, ["o", "2020", "x", "y", "z"]);
+
+    await expect(initPromise).rejects.toThrow(/Too many invalid attempts for platform/);
   });
 });
 

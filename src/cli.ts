@@ -1,11 +1,18 @@
 import type { AgentName } from "./agent.js";
 import type { InitOptions, Visibility } from "./init.js";
+import type { Platform } from "./repo.js";
 
 import { AGENTS, buildPrompt, runAgent } from "./agent.js";
 import { runApply } from "./apply.js";
 import { selectChanges } from "./changes.js";
 import { runCheck } from "./check.js";
-import { InitError, parseSinceFlag, parseVisibilityFlag, runInit } from "./init.js";
+import {
+  InitError,
+  parsePlatformFlag,
+  parseSinceFlag,
+  parseVisibilityFlag,
+  runInit,
+} from "./init.js";
 import { getPackageRoot, loadManifest } from "./manifest.js";
 import { detectScopes, readRepoMeta } from "./repo.js";
 import { buildPendingPayload, writePending } from "./sync.js";
@@ -14,7 +21,7 @@ const USAGE = `Usage: standards <command> [--cwd <dir>]
 
 Commands:
   init    Create .repometa.json interactively (or via flags for CI)
-          [--visibility oss|private] [--since <int>] [--yes] [--force]
+          [--visibility oss|private] [--since <int>] [--platform github|forgejo] [--yes] [--force]
   check   Report drift between this repository and the org standards (exit 1 on drift)
   apply   Write managed files, seed missing ones, update branding sections, bump the stamp
           [--from-version <int>: explicit baseline for pending-marker selection]
@@ -84,6 +91,11 @@ function getSinceFlag(args: string[], currentYear: number): number | undefined {
   return raw === undefined ? undefined : parseSinceFlag(raw, currentYear);
 }
 
+function getPlatformFlag(args: string[]): Platform | undefined {
+  const raw = getFlagValue(args, "--platform");
+  return raw === undefined ? undefined : parsePlatformFlag(raw);
+}
+
 function reportApplied(changes: ReturnType<typeof runApply>): void {
   for (const change of changes) {
     out(`${change.action.padEnd(8)} ${change.path}`);
@@ -111,10 +123,11 @@ export async function initCommand(context: InitCommandContext): Promise<void> {
   const force = hasFlag(args, "--force");
   const visibility = getVisibilityFlag(args);
   const since = getSinceFlag(args, currentYear);
+  const platform = getPlatformFlag(args);
 
   if (!yes && !isTty) {
     throw new InitError(
-      "No TTY available for interactive prompts. Pass --yes (with --visibility/--since as needed) for non-interactive mode.",
+      "No TTY available for interactive prompts. Pass --yes (with --visibility/--since/--platform as needed) for non-interactive mode.",
     );
   }
 
@@ -123,6 +136,7 @@ export async function initCommand(context: InitCommandContext): Promise<void> {
     interactive: !yes && isTty,
     ...(visibility === undefined ? {} : { visibility }),
     ...(since === undefined ? {} : { since }),
+    ...(platform === undefined ? {} : { platform }),
   };
   const previous = force ? safeReadRepoMeta(cwd) : undefined;
   const meta = await runInit(cwd, currentYear, options);
@@ -144,13 +158,13 @@ function reportInitResult(
 ): void {
   if (force && previous !== undefined) {
     out(
-      `Reset .repometa.json (was: standards=${String(previous.standards)}, visibility=${previous.visibility}, since=${String(previous.since)})`,
+      `Reset .repometa.json (was: standards=${String(previous.standards)}, visibility=${previous.visibility}, since=${String(previous.since)}, platform=${previous.platform ?? "n/a"})`,
     );
   } else if (force) {
     out("Reset .repometa.json (previous content was not parseable).");
   }
   out(
-    `Wrote .repometa.json (standards=0, visibility=${meta.visibility}, since=${String(meta.since)})`,
+    `Wrote .repometa.json (standards=0, visibility=${meta.visibility}, since=${String(meta.since)}, platform=${meta.platform ?? "forgejo"})`,
   );
   out("Next: run `standards apply` to populate managed and seeded files.");
 }

@@ -6,9 +6,9 @@ import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { createInterface } from "node:readline/promises";
 
-import type { RepoMeta } from "./repo.js";
+import type { Platform, RepoMeta } from "./repo.js";
 
-import { REPO_META_FILE, writeRepoMeta } from "./repo.js";
+import { isPlatform, REPO_META_FILE, writeRepoMeta } from "./repo.js";
 
 export type Visibility = RepoMeta["visibility"];
 
@@ -20,6 +20,7 @@ export type Streams = {
 export type InitOptions = {
   visibility?: Visibility;
   since?: number;
+  platform?: Platform;
   force?: boolean;
   interactive?: boolean;
   streams?: Streams;
@@ -77,6 +78,31 @@ export function parseVisibilityChoice(raw: string): undefined | Visibility {
   return undefined;
 }
 
+export function parsePlatformFlag(raw: string): Platform {
+  if (!isPlatform(raw)) {
+    throw new InitError(`--platform must be "github" or "forgejo" — got ${JSON.stringify(raw)}.`);
+  }
+  return raw;
+}
+
+export function parsePlatformChoice(raw: string): Platform | undefined {
+  const normalized = raw.trim().toLowerCase();
+  if (normalized === "g" || normalized === "github") return "github";
+  if (normalized === "f" || normalized === "forgejo") return "forgejo";
+  return undefined;
+}
+
+export function detectPlatform(cwd: string): Platform {
+  const result = spawnSync("git", ["-C", cwd, "remote", "get-url", "origin"], {
+    encoding: "utf8",
+    timeout: GIT_TIMEOUT_MS,
+  });
+  if (result.error !== undefined || result.status !== 0) return "forgejo";
+  const url = result.stdout.trim();
+  if (url === "") return "forgejo";
+  return url.includes("github.com") ? "github" : "forgejo";
+}
+
 function parseGitYear(output: string, currentYear: number): number | undefined {
   const firstLine = output.split("\n", 1)[0]?.trim();
   if (firstLine === undefined || firstLine === "") return undefined;
@@ -103,12 +129,18 @@ const VISIBILITY_MENU = `Repository visibility:
   (p) private — internal, plain copyright
 `;
 
+const PLATFORM_MENU = `Repository platform:
+  (g) GitHub
+  (f) Forgejo
+`;
+
 type PromptContext = {
   rl: ReadlineInterface;
   output: Writable;
   currentYear: number;
   visibilityDefault: Visibility;
   sinceDefault: number;
+  platformDefault: Platform;
 };
 
 async function promptVisibility(context: PromptContext): Promise<Visibility> {
@@ -155,11 +187,31 @@ async function promptSince(context: PromptContext): Promise<number> {
   throw new InitError("Too many invalid attempts for initial year.");
 }
 
+async function promptPlatform(context: PromptContext): Promise<Platform> {
+  const { rl, output, platformDefault } = context;
+  output.write(PLATFORM_MENU);
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    const answer = await rl.question(`Choice [${platformDefault === "github" ? "g" : "f"}]: `);
+    if (answer.trim() === "") return platformDefault;
+    const parsed = parsePlatformChoice(answer);
+    if (parsed !== undefined) return parsed;
+    output.write("Please answer g, f, github, or forgejo.\n");
+  }
+  throw new InitError("Too many invalid attempts for platform.");
+}
+
+type InteractiveDefaults = {
+  currentYear: number;
+  visibilityDefault: Visibility;
+  sinceDefault: number;
+  platformDefault: Platform;
+};
+
 async function resolveInteractive(
   streams: Streams,
-  defaults: { currentYear: number; visibilityDefault: Visibility; sinceDefault: number },
+  defaults: InteractiveDefaults,
   options: InitOptions,
-): Promise<{ visibility: Visibility; since: number }> {
+): Promise<{ visibility: Visibility; since: number; platform: Platform }> {
   const rl = createInterface({
     input: streams.input,
     output: streams.output,
@@ -169,7 +221,8 @@ async function resolveInteractive(
     const context: PromptContext = { rl, output: streams.output, ...defaults };
     const visibility = options.visibility ?? (await promptVisibility(context));
     const since = options.since ?? (await promptSince(context));
-    return { visibility, since };
+    const platform = options.platform ?? (await promptPlatform(context));
+    return { visibility, since, platform };
   } finally {
     rl.close();
   }
@@ -206,12 +259,28 @@ export async function runInit(
   guardLibraryUsage(interactive, streams);
   const visibilityDefault: Visibility = "oss";
   const sinceDefault = detectFirstCommitYear(cwd, currentYear) ?? currentYear;
+  const platformDefault = detectPlatform(cwd);
 
+  const defaults: InteractiveDefaults = {
+    currentYear,
+    visibilityDefault,
+    sinceDefault,
+    platformDefault,
+  };
   const resolved = interactive
-    ? await resolveInteractive(streams, { currentYear, visibilityDefault, sinceDefault }, options)
-    : { visibility: options.visibility ?? visibilityDefault, since: options.since ?? sinceDefault };
+    ? await resolveInteractive(streams, defaults, options)
+    : {
+        visibility: options.visibility ?? visibilityDefault,
+        since: options.since ?? sinceDefault,
+        platform: options.platform ?? platformDefault,
+      };
 
-  const meta: RepoMeta = { standards: 0, visibility: resolved.visibility, since: resolved.since };
+  const meta: RepoMeta = {
+    standards: 0,
+    visibility: resolved.visibility,
+    since: resolved.since,
+    platform: resolved.platform,
+  };
   writeRepoMeta(cwd, meta);
   return meta;
 }
