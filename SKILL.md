@@ -19,6 +19,10 @@ the CLI for mechanics, use judgement only where the changelogs require it.
 
 ## Workflow
 
+Human maintainers onboarding a brand-new repo (not handled by the agent
+yet): see [`docs/runbooks/onboard-repo.md`](docs/runbooks/onboard-repo.md)
+for the full step-by-step procedure.
+
 1. Run `pnpm dlx @sebastian-software/standards check`. If it reports
    nothing, you are done.
 2. Run `standards apply`. It writes managed files, seeds missing ones, updates
