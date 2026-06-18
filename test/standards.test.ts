@@ -607,3 +607,20 @@ describe("published binary", () => {
     expect(wrapper.startsWith("#!/usr/bin/env node\n")).toBe(true);
   });
 });
+
+describe("standards init CLI guard", () => {
+  it("fails fast with a No TTY hint when stdin is piped and --yes is absent", async () => {
+    const { getPackageRoot } = await import("../src/manifest.js");
+    const cliPath = join(getPackageRoot(), "dist", "cli.js");
+    const fixtureCwd = mkdtempSync(join(tmpdir(), "standards-cli-"));
+
+    const result = spawnSync(process.execPath, [cliPath, "init", "--cwd", fixtureCwd], {
+      encoding: "utf8",
+      input: "",
+      stdio: ["pipe", "pipe", "pipe"],
+    });
+
+    expect(result.status).not.toBe(0);
+    expect(result.stderr).toMatch(/No TTY/);
+  });
+});
