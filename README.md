@@ -43,7 +43,7 @@ flowchart TB
 Every managed repository carries a `.repometa.json` stamp:
 
 ```json
-{ "standards": 1, "visibility": "oss", "since": 2026 }
+{ "standards": 3, "visibility": "oss", "since": 2026, "platform": "github" }
 ```
 
 This package defines the current standards version ([manifest.json](manifest.json)),

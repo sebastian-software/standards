@@ -2,13 +2,22 @@ import { existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from "
 import { dirname, isAbsolute, join } from "node:path";
 
 import type { Manifest, ScopeSpec, SectionSpec } from "./manifest.js";
-import type { RepoMeta } from "./repo.js";
+import type { Platform, RepoMeta } from "./repo.js";
 
 import { buildPrompt } from "./agent.js";
 import { copyrightYears, renderTemplate, upsertSection } from "./branding.js";
 import { selectChanges } from "./changes.js";
 import { getPackageRoot, loadManifest } from "./manifest.js";
 import { detectScopes, readRepoMeta } from "./repo.js";
+
+export function matchesPlatform(
+  entryPlatform: Platform | undefined,
+  metaPlatform: Platform | undefined,
+): boolean {
+  if (entryPlatform === undefined) return true;
+  if (metaPlatform === undefined) return false;
+  return entryPlatform === metaPlatform;
+}
 
 export type SyncContext = {
   cwd: string;

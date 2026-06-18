@@ -1,15 +1,19 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
+import type { Platform } from "./repo.js";
+
 export type FileMapping = {
   source: string;
   target: string;
+  platform?: Platform;
 };
 
 export type SectionSpec = {
   file: string;
   marker: string;
   templates: Record<string, string>;
+  platform?: Platform;
 };
 
 export type ScopeSpec = {

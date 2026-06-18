@@ -53,6 +53,11 @@ the CLI for mechanics, use judgement only where the changelogs require it.
 - **Respect `exceptions`.** Entries in `.repometa.json#exceptions` document
   deliberate deviations (e.g. `"keeps-prettier"`). Skip the matching steps and
   leave the exceptions in place.
+- **Respect `platform`.** Manifest entries without `platform` apply to every
+  repo. Entries with `platform` apply only on a repo whose
+  `.repometa.json#platform` matches. Legacy repos without `platform` skip
+  every platform-scoped entry until the migration step from change 0003 is
+  carried out (`standards init --force --platform <p>`, then re-run apply).
 - **Do not invent standards.** If something is unclear or a reference file is
   missing for the repo's stack, stop and report instead of improvising.
 

@@ -5,12 +5,19 @@ import type { Manifest } from "./manifest.js";
 
 export const REPO_META_FILE = ".repometa.json";
 
+export type Platform = "forgejo" | "github";
+
 export type RepoMeta = {
   standards: number;
   visibility: "oss" | "private";
   since: number;
   exceptions?: string[];
+  platform?: Platform;
 };
+
+export function isPlatform(value: unknown): value is Platform {
+  return value === "github" || value === "forgejo";
+}
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
@@ -25,6 +32,11 @@ function assertRepoMeta(value: unknown): asserts value is RepoMeta {
   ) {
     throw new Error(
       `Invalid ${REPO_META_FILE}: expected { standards: number, visibility: "oss" | "private", since: number }`,
+    );
+  }
+  if (value.platform !== undefined && !isPlatform(value.platform)) {
+    throw new Error(
+      `Invalid ${REPO_META_FILE}: platform must be "github" or "forgejo" when present.`,
     );
   }
 }
