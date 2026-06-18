@@ -16,6 +16,7 @@ import { describe, expect, it } from "vitest";
 import { runApply } from "../src/apply.js";
 import { copyrightYears, renderTemplate, upsertSection } from "../src/branding.js";
 import { runCheck } from "../src/check.js";
+import { initCommand } from "../src/cli.js";
 import {
   detectFirstCommitYear,
   InitError,
@@ -672,6 +673,27 @@ describe("runInit write contract", () => {
 
     const preservedForeign = foreign.map((rel) => readFileSync(join(cwd, rel), "utf8"));
     expect(preservedForeign).toStrictEqual(foreign.map((rel) => `foreign:${rel}\n`));
+  });
+});
+
+describe("initCommand TTY injection", () => {
+  it("throws on non-TTY without --yes", async () => {
+    const cwd = createFreshDir();
+    await expect(initCommand({ cwd, currentYear: YEAR, args: [], isTty: false })).rejects.toThrow(
+      /No TTY/,
+    );
+  });
+
+  it("writes the file in non-interactive mode with --yes regardless of TTY", async () => {
+    const cwd = createFreshDir();
+    await initCommand({
+      cwd,
+      currentYear: YEAR,
+      args: ["--yes", "--visibility", "private", "--since", "2024"],
+      isTty: false,
+    });
+    expect(existsSync(join(cwd, ".repometa.json"))).toBe(true);
+    expect(readStamp(cwd)).toBe(0);
   });
 });
 
