@@ -47,3 +47,27 @@ the CLI for mechanics, use judgement only where the changelogs require it.
   leave the exceptions in place.
 - **Do not invent standards.** If something is unclear or a reference file is
   missing for the repo's stack, stop and report instead of improvising.
+
+## Renovate onboarding
+
+When Renovate opens its first onboarding PR (`Configure Renovate`) on a
+new consumer repo, it may write `local>sebastian-software/renovate-config`
+for the preset reference. The canonical form is `github>...` — on
+Forgejo workers, `local>` resolves Forgejo-resident while `github>`
+resolves GitHub-resident, and the preset repo lives on GitHub.
+
+Before merging the onboarding PR, edit the file so both preset entries
+use the `github>` prefix:
+
+```json
+{
+  "extends": [
+    "github>sebastian-software/renovate-config",
+    "github>sebastian-software/renovate-config:standards"
+  ]
+}
+```
+
+The seeded `renovate.json` in this package already uses the canonical
+form, so once a repo is past onboarding, `standards apply` keeps it
+correct.
