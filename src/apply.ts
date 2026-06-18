@@ -2,6 +2,7 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 
 import type { ScopeSpec } from "./manifest.js";
+import type { RepoMeta } from "./repo.js";
 import type { SyncContext } from "./sync.js";
 
 import { upsertSection } from "./branding.js";
@@ -58,8 +59,8 @@ function applySections(context: SyncContext, scope: ScopeSpec): Change[] {
   });
 }
 
-export function runApply(cwd: string, currentYear: number): Change[] {
-  const context = createContext(cwd, currentYear);
+export function runApply(cwd: string, currentYear: number, preReadMeta?: RepoMeta): Change[] {
+  const context = createContext(cwd, currentYear, preReadMeta);
   const changes: Change[] = [];
 
   for (const scope of context.scopes) {

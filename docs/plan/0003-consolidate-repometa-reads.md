@@ -1,6 +1,6 @@
 # 0003: Consolidate `.repometa.json` reads in the apply pipeline
 
-**Plan status:** Not implemented
+**Plan status:** Implemented
 **Source:** /plan
 **Recommended workflow:** Refactoring (`/refactor`)
 
@@ -104,15 +104,15 @@ Not relevant.
 
 ## Acceptance criteria
 
-- [ ] `applyCommand` calls `readRepoMeta` exactly once per invocation;
+- [x] `applyCommand` calls `readRepoMeta` exactly once per invocation;
       verified by code inspection of the resulting source.
-- [ ] `syncCommand` calls `readRepoMeta` exactly once per invocation.
-- [ ] `runApply(cwd, currentYear)` and `runApply(cwd, currentYear, meta)`
+- [x] `syncCommand` calls `readRepoMeta` exactly once per invocation.
+- [x] `runApply(cwd, currentYear)` and `runApply(cwd, currentYear, meta)`
       produce identical `Change[]` results on the same fixture.
-- [ ] `buildPendingPayload(cwd, fromVersion)` and
+- [x] `buildPendingPayload(cwd, fromVersion)` and
       `buildPendingPayload(cwd, fromVersion, meta)` produce identical
       payloads on the same fixture.
-- [ ] `pnpm agent:check` passes, including the existing 40 tests and
+- [x] `pnpm agent:check` passes, including the existing 40 tests and
       the new wiring test.
 
 ## Validation plan
@@ -166,3 +166,42 @@ Not relevant.
 - **Maintainability — hint:** Reduces the implicit assumption that
   `.repometa.json` does not change between back-to-back reads within a
   single command. Single read makes the snapshot semantics explicit.
+
+## Test results
+
+**Date:** 2026-06-18
+**Validator:** `pnpm agent:check` (final run green)
+
+| Gate                                  | Status                              |
+| ------------------------------------- | ----------------------------------- |
+| oxlint + eslint                       | green, no warnings                  |
+| oxfmt format:check                    | green                               |
+| tsc (root + build)                    | green                               |
+| vitest                                | 42/42 tests passed                  |
+| `node dist/cli.js check` (self-check) | "Repository matches org standards." |
+
+Two new tests in `describe("preReadMeta threading", ...)` lock in the
+equivalence of parameterized and default runs for both `runApply` and
+`buildPendingPayload`. The existing `writePending` tests are adjusted
+because `writePending` now accepts a pre-built `PendingPayload` instead
+of building one internally — the caller is responsible for that step.
+
+## Review findings
+
+**Date:** 2026-06-18
+**Reviewer:** workflow self-review
+
+### Summary
+
+| Status                 | Count |
+| ---------------------- | ----: |
+| Resolved               |     0 |
+| Open / Not implemented |     0 |
+
+Keine Findings gefunden. `writePending` was simplified rather than
+gaining a fourth optional parameter (which would violate the project's
+`max-params: 3` lint rule). The caller (`applyCommand`) now builds the
+payload explicitly via `buildPendingPayload(cwd, fromVersion, meta)`
+and passes the result to `writePending`. This is a minor semantic
+adjustment compared to the plan but stays within the spirit of the
+consolidation: one read, threaded through, no internal re-reads.

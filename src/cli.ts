@@ -8,7 +8,7 @@ import { runCheck } from "./check.js";
 import { InitError, parseSinceFlag, parseVisibilityFlag, runInit } from "./init.js";
 import { getPackageRoot, loadManifest } from "./manifest.js";
 import { detectScopes, readRepoMeta } from "./repo.js";
-import { writePending } from "./sync.js";
+import { buildPendingPayload, writePending } from "./sync.js";
 
 const USAGE = `Usage: standards <command> [--cwd <dir>]
 
@@ -158,13 +158,14 @@ function reportInitResult(
 function applyCommand(cwd: string, currentYear: number, args: string[]): void {
   const explicitFromVersion = getFromVersion(args);
   const emitPending = getEmitPending(args);
-  const preApplyStandards = readRepoMeta(cwd).standards;
-  const effectiveFromVersion = explicitFromVersion ?? preApplyStandards;
+  const meta = readRepoMeta(cwd);
+  const effectiveFromVersion = explicitFromVersion ?? meta.standards;
 
-  const changes = runApply(cwd, currentYear);
+  const changes = runApply(cwd, currentYear, meta);
 
   if (emitPending !== undefined) {
-    writePending(cwd, emitPending, effectiveFromVersion);
+    const payload = buildPendingPayload(cwd, effectiveFromVersion, meta);
+    writePending(cwd, emitPending, payload);
   }
 
   if (changes.length === 0) {
@@ -192,9 +193,10 @@ function syncCommand(cwd: string, currentYear: number, args: string[]): void {
   const agent = getAgent(args);
   const packageRoot = getPackageRoot();
   const manifest = loadManifest(packageRoot);
-  const fromVersion = readRepoMeta(cwd).standards;
+  const meta = readRepoMeta(cwd);
+  const fromVersion = meta.standards;
 
-  reportApplied(runApply(cwd, currentYear));
+  reportApplied(runApply(cwd, currentYear, meta));
 
   const scopeNames = detectScopes(cwd, manifest);
   const entries = selectChanges(packageRoot, fromVersion, scopeNames);
@@ -205,7 +207,7 @@ function syncCommand(cwd: string, currentYear: number, args: string[]): void {
 
   const prompt = buildPrompt({
     packageRoot,
-    meta: readRepoMeta(cwd),
+    meta,
     scopeNames,
     fromVersion,
     toVersion: manifest.currentVersion,

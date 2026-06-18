@@ -19,10 +19,14 @@ export type SyncContext = {
   currentYear: number;
 };
 
-export function createContext(cwd: string, currentYear: number): SyncContext {
+export function createContext(
+  cwd: string,
+  currentYear: number,
+  preReadMeta?: RepoMeta,
+): SyncContext {
   const packageRoot = getPackageRoot();
   const manifest = loadManifest(packageRoot);
-  const meta = readRepoMeta(cwd);
+  const meta = preReadMeta ?? readRepoMeta(cwd);
   const scopes = detectScopes(cwd, manifest)
     .map((name) => manifest.scopes[name])
     .filter((scope) => scope !== undefined);
@@ -157,10 +161,14 @@ export function assertPendingPayload(value: unknown): asserts value is PendingPa
   assertPayloadBody(value);
 }
 
-export function buildPendingPayload(cwd: string, fromVersion: number): PendingPayload | undefined {
+export function buildPendingPayload(
+  cwd: string,
+  fromVersion: number,
+  preReadMeta?: RepoMeta,
+): PendingPayload | undefined {
   const packageRoot = getPackageRoot();
   const manifest = loadManifest(packageRoot);
-  const meta = readRepoMeta(cwd);
+  const meta = preReadMeta ?? readRepoMeta(cwd);
   const scopeNames = detectScopes(cwd, manifest);
   const changes = selectChanges(packageRoot, fromVersion, scopeNames);
   if (changes.length === 0) {
@@ -195,9 +203,12 @@ function resolveEmitPath(cwd: string, raw: string): string {
   return isAbsolute(raw) ? raw : join(cwd, raw);
 }
 
-export function writePending(cwd: string, emitPending: string, fromVersion: number): void {
+export function writePending(
+  cwd: string,
+  emitPending: string,
+  payload: PendingPayload | undefined,
+): void {
   const path = resolveEmitPath(cwd, emitPending);
-  const payload = buildPendingPayload(cwd, fromVersion);
   if (payload === undefined) {
     if (existsSync(path)) {
       unlinkSync(path);
