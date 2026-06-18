@@ -108,3 +108,42 @@ Pipeline order for a `standards:` PR:
 
 Until agent run 2 is wired, the maintainer reviews the diff manually
 against the SKILL.md rules without an LLM pre-comment.
+
+## Branch protection setup
+
+Without branch protection on `main`, the consumer-repo CI guard is soft:
+a maintainer (or a misclick) could merge a red state, and the
+`pending.json` guard loses its effect. The merge policy above presupposes
+hard required status checks; otherwise the whole CI gate architecture is
+decorative.
+
+### GitHub
+
+Required settings on `main` for every consumer repo:
+
+- `main` is a protected branch.
+- "Require status checks to pass before merging" enabled, with the
+  CI workflow name (e.g. `ci`) listed as a required check.
+- "Require branches to be up to date before merging" enabled.
+- Optional but recommended: "Require linear history", "Allow force
+  pushes: none", "Allow deletions: none".
+
+Idempotent one-shot via `gh`:
+
+```bash
+gh api repos/$ORG/$REPO/branches/main/protection -X PUT \
+  -F required_status_checks.strict=true \
+  -F required_status_checks.contexts[]=ci \
+  -F enforce_admins=true \
+  -F required_pull_request_reviews= \
+  -F restrictions=
+```
+
+### Forgejo
+
+Forgejo's branch-rules API differs (`POST /repos/{owner}/{repo}/branch_protections`)
+but the required setting set is equivalent: protect `main`, require the
+named CI check to pass, require branches up to date, disallow force pushes
+and deletions. Verification on Forgejo is deferred until the first Forgejo
+consumer repo opts in; once it does, mirror the GitHub setup above and
+record the exact API payload here.
