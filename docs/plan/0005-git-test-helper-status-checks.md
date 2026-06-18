@@ -1,6 +1,6 @@
 # 0005: Assert git command success in the `initGitRepo` test helper
 
-**Plan status:** Not implemented
+**Plan status:** Implemented
 **Source:** /plan
 **Recommended workflow:** Refactoring (`/refactor`)
 
@@ -78,15 +78,15 @@ Not relevant.
 
 ## Acceptance criteria
 
-- [ ] `initGitRepo` uses a status-asserting helper for every git
+- [x] `initGitRepo` uses a status-asserting helper for every git
       invocation.
-- [ ] If `git` is unavailable or any git step exits non-zero, the test
+- [x] If `git` is unavailable or any git step exits non-zero, the test
       fails at the failed step with a message that includes the
       command and the captured stderr.
-- [ ] All existing tests that depend on `initGitRepo` (the
+- [x] All existing tests that depend on `initGitRepo` (the
       `detectFirstCommitYear` happy path test and the `runInit` git
       year test) keep passing.
-- [ ] `pnpm agent:check` passes.
+- [x] `pnpm agent:check` passes.
 
 ## Validation plan
 
@@ -131,3 +131,38 @@ Not relevant.
   code is involved.
 - **Scope — hint:** Only the three git invocations inside
   `initGitRepo` are touched; other `spawnSync` uses remain unchanged.
+
+## Test results
+
+**Date:** 2026-06-18
+**Validator:** `pnpm agent:check` (final run green)
+
+| Gate                                  | Status                              |
+| ------------------------------------- | ----------------------------------- |
+| oxlint + eslint                       | green, no warnings                  |
+| oxfmt format:check                    | green                               |
+| tsc (root + build)                    | green                               |
+| vitest                                | 40/40 tests passed                  |
+| `node dist/cli.js check` (self-check) | "Repository matches org standards." |
+
+`initGitRepo` now goes through the new `runGit` helper, which throws on
+non-zero exit with the failing arguments and captured stderr in the
+message. The two tests that depend on `initGitRepo`
+(`detectFirstCommitYear` happy path, `runInit` git-year default) still
+pass.
+
+## Review findings
+
+**Date:** 2026-06-18
+**Reviewer:** workflow self-review (test-only change)
+
+### Summary
+
+| Status                 | Count |
+| ---------------------- | ----: |
+| Resolved               |     0 |
+| Open / Not implemented |     0 |
+
+Keine Findings gefunden. Test-internal helper with no production-code
+impact; the validator gates and the two existing dependent tests
+already cover the regression surface.
