@@ -1,5 +1,27 @@
 # Changelog
 
+## [0.5.0](https://github.com/sebastian-software/standards/compare/standards-v0.4.0...standards-v0.5.0) (2026-06-19)
+
+
+### Features
+
+* assertPendingPayload guard plus runInit stdin docs note ([e1da040](https://github.com/sebastian-software/standards/commit/e1da0402a0c4460269907fb810dc88e458aeb41b))
+* assertPendingPayload guard plus runInit stdin docs note ([6ee1ff8](https://github.com/sebastian-software/standards/commit/6ee1ff883cda77b444551437c718984bcf67d026))
+* Forgejo Actions CI seed (standards v4) ([6f679ce](https://github.com/sebastian-software/standards/commit/6f679ce3db1a0c24dfc999e80a31d4060df74985))
+* Forgejo Actions CI seed (standards v4) ([f5423f9](https://github.com/sebastian-software/standards/commit/f5423f959d585823c7cac950fc82ca03b08f9cb6)), closes [#10](https://github.com/sebastian-software/standards/issues/10)
+* platform-aware manifest, CLI, and GitHub Actions CI seed (standards v3) ([214ff26](https://github.com/sebastian-software/standards/commit/214ff26769506b988d3dbaa9e20ca6e0c790c97f))
+* platform-aware manifest, CLI, and GitHub Actions CI seed (standards v3) ([8d28678](https://github.com/sebastian-software/standards/commit/8d286781c8254baa9d21dcfea41b046d49618c7c)), closes [#9](https://github.com/sebastian-software/standards/issues/9)
+* reference pending.json changes from the agent prompt instead of duplicating them ([eb005c5](https://github.com/sebastian-software/standards/commit/eb005c59c4d878842f101c99014a5e957b280ea5))
+* reference pending.json changes from the agent prompt instead of duplicating them ([99f0c3d](https://github.com/sebastian-software/standards/commit/99f0c3d4f606183257c2797aecd441748818ba23))
+* run standards agent checks in CI mode as non-blocking hints ([9308d94](https://github.com/sebastian-software/standards/commit/9308d94295a4beeea4bee9b19da4bf3b02ed239d))
+* run standards agent checks in CI mode as non-blocking hints ([116ca22](https://github.com/sebastian-software/standards/commit/116ca22ca36b0cc3460205c8f7f05fb9b400cd16))
+
+
+### Bug Fixes
+
+* seed renovate.json with canonical github&gt; preset references ([195d41e](https://github.com/sebastian-software/standards/commit/195d41ecfd3a3e171261e61f6ae4066f8c2c1860))
+* seed renovate.json with canonical github&gt; preset references ([ff84f90](https://github.com/sebastian-software/standards/commit/ff84f90363224a5276e139cc2f8680c394d2b34b)), closes [#12](https://github.com/sebastian-software/standards/issues/12)
+
 ## [0.4.0](https://github.com/sebastian-software/standards/compare/standards-v0.3.0...standards-v0.4.0) (2026-06-16)
 
 
