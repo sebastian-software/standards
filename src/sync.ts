@@ -190,6 +190,9 @@ export function buildPendingPayload(
     fromVersion,
     toVersion: manifest.currentVersion,
     changes,
+    // The prompt ships inside pending.json next to the `changes` array, so it
+    // references that array instead of duplicating every changelog body.
+    changesSource: "pending-file",
   });
   return {
     schemaVersion: 1,
