@@ -203,6 +203,16 @@ transfer between runs:
    responsibility. See
    [#37](https://github.com/sebastian-software/standards/issues/37).
 
+   When the agent's own gate run produced any failed or incomplete checks,
+   it posts **one separate information comment** on the PR listing each such
+   check with its output and noting that the automated environment may lack
+   prerequisites (e.g. environment variables), so its results can differ
+   from the PR's own CI run and a human should verify. This comment is
+   posted only when there are failures, in addition to run 2's summary
+   comment, and does not change the always-finalize behavior; the failures
+   stay recorded. See
+   [#40](https://github.com/sebastian-software/standards/issues/40).
+
 2. **Agent run 2 — semantic pre-check.** Triggered by label
    `standards:needs-review` or by `.standards/review-pending.json`. Reads
    the PR diff, the relevant changelog entries, `SKILL.md`, and

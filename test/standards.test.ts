@@ -234,6 +234,33 @@ describe("selectChanges and buildPrompt", () => {
       expect(prompt).not.toContain(entry.content.trim());
     }
   });
+
+  it("instructs run 1 to post an information comment for failed or incomplete checks", async () => {
+    const { buildPrompt } = await import("../src/agent.js");
+    const { selectChanges } = await import("../src/changes.js");
+    const { getPackageRoot } = await import("../src/manifest.js");
+    const root = getPackageRoot();
+
+    const prompt = buildPrompt({
+      packageRoot: root,
+      meta: { standards: 1, visibility: "oss", since: 2020 },
+      scopeNames: ["common", "node"],
+      fromVersion: 0,
+      toVersion: 2,
+      changes: selectChanges(root, 0, ["common", "node"]),
+    });
+
+    expect(prompt).toContain("information comment");
+    expect(prompt).toContain("could not complete");
+    // Context-bound anchor for the env-prerequisites note (unique to this bullet).
+    expect(prompt).toContain("may lack prerequisites");
+    expect(prompt).toContain("environment variables");
+    // Conditional: no comment when everything passes.
+    expect(prompt).toContain("post no such comment");
+    // The distinguishing clauses vs. #38: additive and finalize-preserving.
+    expect(prompt).toContain("in addition to the summary");
+    expect(prompt).toContain("always-finalize");
+  });
 });
 
 function hashTree(root: string): Map<string, string> {
