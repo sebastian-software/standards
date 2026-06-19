@@ -8,6 +8,13 @@ import type { RepoMeta } from "./repo.js";
 export const AGENTS = ["claude", "codex"] as const;
 export type AgentName = (typeof AGENTS)[number];
 
+// `inline` embeds each changelog body in the prompt — used for the
+// self-contained local `standards sync` prompt, where no marker file exists.
+// `pending-file` ships next to the `changes` array of `.standards/pending.json`
+// (the Renovate flow), so it references that array instead of duplicating the
+// bodies into the prompt.
+export type ChangesSource = "inline" | "pending-file";
+
 export type PromptInput = {
   packageRoot: string;
   meta: RepoMeta;
@@ -15,13 +22,25 @@ export type PromptInput = {
   fromVersion: number;
   toVersion: number;
   changes: ChangeEntry[];
+  changesSource?: ChangesSource;
 };
+
+function renderChangesSection(changes: ChangeEntry[], source: ChangesSource): string {
+  if (source === "pending-file") {
+    const index = changes.map((entry) => `- ${entry.file} (v${String(entry.version)})`).join("\n");
+    // The listed fields mirror `PendingChange` in `sync.ts`; keep them in sync.
+    return `The full body of each entry is in the \`changes\` array of
+\`.standards/pending.json\` (fields: file, version, scopes, content). Work
+through them in order:
+
+${index}`;
+  }
+  return changes.map((entry) => `### ${entry.file}\n\n${entry.content.trim()}`).join("\n\n");
+}
 
 export function buildPrompt(input: PromptInput): string {
   const skill = readFileSync(join(input.packageRoot, "SKILL.md"), "utf8");
-  const changeSections = input.changes
-    .map((entry) => `### ${entry.file}\n\n${entry.content.trim()}`)
-    .join("\n\n");
+  const changesSection = renderChangesSection(input.changes, input.changesSource ?? "inline");
 
   return `You are migrating this repository to the Sebastian Software org standards.
 
@@ -40,7 +59,7 @@ ${skill}
 
 ## Changelog entries to execute
 
-${changeSections}
+${changesSection}
 
 ## Validation
 

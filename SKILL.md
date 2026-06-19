@@ -183,8 +183,10 @@ transfer between runs:
 
 1. **Agent run 1 — mechanics.** Triggered by label
    `standards:needs-agent` or by the presence of
-   `.standards/pending.json` in the PR diff. Reads `pending.json`,
-   performs the judgement steps, and runs the repo's own gate in CI mode
+   `.standards/pending.json` in the PR diff. Reads `pending.json` — its
+   `prompt` field carries the instructions and references the `changes`
+   array for the changelog bodies (which are not duplicated into the
+   prompt). Performs the judgement steps, and runs the repo's own gate in CI mode
    — prefer `agent:check:ci`, fall back to `agent:check` — using the
    output as hints to improve the changes. The checks are **not** a merge
    gate: the agent does not abort on a failing check and always commits

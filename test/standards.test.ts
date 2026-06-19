@@ -152,13 +152,14 @@ describe("selectChanges and buildPrompt", () => {
     const { getPackageRoot } = await import("../src/manifest.js");
     const root = getPackageRoot();
 
+    const changes = selectChanges(root, 0, ["common", "node"]);
     const prompt = buildPrompt({
       packageRoot: root,
       meta: { standards: 1, visibility: "oss", since: 2020 },
       scopeNames: ["common", "node"],
       fromVersion: 0,
       toVersion: 2,
-      changes: selectChanges(root, 0, ["common", "node"]),
+      changes,
     });
 
     expect(prompt).toContain("repository standards — agent instructions");
@@ -166,6 +167,13 @@ describe("selectChanges and buildPrompt", () => {
     expect(prompt).toContain("0002-renovate-pending.md");
     expect(prompt).toContain("0003-platform-aware-ci.md");
     expect(prompt).toContain("visibility: oss");
+    // inline mode embeds the full changelog bodies — the positive
+    // counterpart to the pending-file test, which asserts they are absent.
+    expect(changes.length).toBeGreaterThan(0);
+    for (const entry of changes) {
+      expect(entry.content.trim().length).toBeGreaterThan(0);
+      expect(prompt).toContain(entry.content.trim());
+    }
   });
 
   it("instructs the agent to run the gate in CI mode as non-blocking hints", async () => {
@@ -197,6 +205,34 @@ describe("selectChanges and buildPrompt", () => {
     expect(buildAgentEnv({}).CI).toBe("true");
     expect(buildAgentEnv({ CI: "false" }).CI).toBe("true");
     expect(buildAgentEnv({ PATH: "/usr/bin" }).PATH).toBe("/usr/bin");
+  });
+
+  it("references the pending.json changes array instead of embedding bodies", async () => {
+    const { buildPrompt } = await import("../src/agent.js");
+    const { selectChanges } = await import("../src/changes.js");
+    const { getPackageRoot } = await import("../src/manifest.js");
+    const root = getPackageRoot();
+    const changes = selectChanges(root, 0, ["common", "node"]);
+
+    const prompt = buildPrompt({
+      packageRoot: root,
+      meta: { standards: 1, visibility: "oss", since: 2020 },
+      scopeNames: ["common", "node"],
+      fromVersion: 0,
+      toVersion: 2,
+      changes,
+      changesSource: "pending-file",
+    });
+
+    expect(prompt).toContain(".standards/pending.json");
+    expect(prompt).toContain("0001-baseline.md (v1)");
+    expect(prompt).toContain("## Validation");
+    // No changelog body is embedded — bodies live only in changes[].content.
+    expect(changes.length).toBeGreaterThan(0);
+    for (const entry of changes) {
+      expect(entry.content.trim().length).toBeGreaterThan(0);
+      expect(prompt).not.toContain(entry.content.trim());
+    }
   });
 });
 
@@ -275,6 +311,13 @@ describe("buildPendingPayload", () => {
     expect(payload.prompt).toContain("repository standards — agent instructions");
     expect(payload.changes.length).toBeGreaterThan(0);
     expect(payload.changes.every((entry) => typeof entry.content === "string")).toBe(true);
+    // The prompt references the changes array; it does not duplicate the
+    // changelog bodies, which live only in changes[].content.
+    expect(payload.prompt).toContain(".standards/pending.json");
+    for (const entry of payload.changes) {
+      expect(entry.content.trim().length).toBeGreaterThan(0);
+      expect(payload.prompt).not.toContain(entry.content.trim());
+    }
   });
 
   it("returns undefined when the stamp matches the manifest", () => {
