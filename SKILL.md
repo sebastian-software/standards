@@ -105,9 +105,11 @@ Pipeline order for a `standards:` PR:
 
 1. Renovate opens the bump PR.
 2. **Agent run 1 — mechanics:** the external pull-mode agent works
-   through `.standards/pending.json`, commits the judgement changes to
-   the branch, deletes the marker, removes the `standards:needs-agent`
-   label, and sets `standards:needs-review`.
+   through `.standards/pending.json`, runs the repo's gate in CI mode
+   (`agent:check:ci`, else `agent:check`) and uses the output as fix
+   hints, commits the judgement changes to the branch and **always
+   pushes** regardless of the check outcome, deletes the marker, removes
+   the `standards:needs-agent` label, and sets `standards:needs-review`.
 3. **Agent run 2 — semantic pre-check:** the same agent runs with a
    fresh context, reads the resulting diff plus the relevant SKILL/
    changelog material, and posts a PR comment summarizing changes,
@@ -182,10 +184,23 @@ transfer between runs:
 1. **Agent run 1 — mechanics.** Triggered by label
    `standards:needs-agent` or by the presence of
    `.standards/pending.json` in the PR diff. Reads `pending.json`,
-   performs the judgement steps, commits to the PR branch, deletes
+   performs the judgement steps, and runs the repo's own gate in CI mode
+   — prefer `agent:check:ci`, fall back to `agent:check` — using the
+   output as hints to improve the changes. The checks are **not** a merge
+   gate: the agent does not abort on a failing check and always commits
+   and pushes its best-effort result to the PR branch (never the default
+   branch — see step 5 of the Workflow). It then deletes
    `pending.json`, removes the `standards:needs-agent` label, and sets
    `standards:needs-review` (and/or writes
    `.standards/review-pending.json`) as the last step.
+
+   The pull request's own full CI run plus human review are the actual
+   gate; the maintainer reviews and merges. Providing CI-appropriate
+   environment variables — so deploy/connection checks do not fail for
+   lack of a local dev environment — is the external wiring's
+   responsibility. See
+   [#37](https://github.com/sebastian-software/standards/issues/37).
+
 2. **Agent run 2 — semantic pre-check.** Triggered by label
    `standards:needs-review` or by `.standards/review-pending.json`. Reads
    the PR diff, the relevant changelog entries, `SKILL.md`, and
