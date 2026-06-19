@@ -167,6 +167,37 @@ describe("selectChanges and buildPrompt", () => {
     expect(prompt).toContain("0003-platform-aware-ci.md");
     expect(prompt).toContain("visibility: oss");
   });
+
+  it("instructs the agent to run the gate in CI mode as non-blocking hints", async () => {
+    const { buildPrompt } = await import("../src/agent.js");
+    const { selectChanges } = await import("../src/changes.js");
+    const { getPackageRoot } = await import("../src/manifest.js");
+    const root = getPackageRoot();
+
+    const prompt = buildPrompt({
+      packageRoot: root,
+      meta: { standards: 1, visibility: "oss", since: 2020 },
+      scopeNames: ["common", "node"],
+      fromVersion: 0,
+      toVersion: 2,
+      changes: selectChanges(root, 0, ["common", "node"]),
+    });
+
+    expect(prompt).toContain("## Validation");
+    expect(prompt).toContain("pnpm agent:check:ci");
+    expect(prompt).toContain("pnpm agent:check");
+    expect(prompt).toContain("Do not stop at the first failing check");
+    // Checks are hints, not a merge gate: commits are never withheld.
+    expect(prompt).toContain("never withhold or revert your commits");
+  });
+
+  it("forces CI mode in the agent environment, overriding any inherited CI", async () => {
+    const { buildAgentEnv } = await import("../src/agent.js");
+
+    expect(buildAgentEnv({}).CI).toBe("true");
+    expect(buildAgentEnv({ CI: "false" }).CI).toBe("true");
+    expect(buildAgentEnv({ PATH: "/usr/bin" }).PATH).toBe("/usr/bin");
+  });
 });
 
 function hashTree(root: string): Map<string, string> {

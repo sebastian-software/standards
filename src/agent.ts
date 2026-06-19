@@ -41,7 +41,28 @@ ${skill}
 ## Changelog entries to execute
 
 ${changeSections}
+
+## Validation
+
+After applying the judgement steps, run the repository's own quality gate to
+guide your changes. Prefer \`pnpm agent:check:ci\` and fall back to
+\`pnpm agent:check\` when the \`:ci\` script is absent; the gate runs in CI mode.
+
+Treat the check output as hints to improve your changes, not as a merge gate:
+
+- Do not stop at the first failing check. Run the gate to completion, collect
+  every failure, and fix what you reasonably can while applying the changesets.
+- Your work is complete after these best-effort fixes, even if some checks still
+  fail. Remaining failures are surfaced to the reviewer by the pull request's
+  own CI run — never withhold or revert your commits because a check is red.
 `;
+}
+
+// Force CI mode so the local `standards sync` fallback exercises the same
+// `agent:check:ci` path the external pull-mode agent uses, instead of a
+// local-dev environment. Overriding a caller-set `CI` is intentional.
+export function buildAgentEnv(base: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+  return { ...base, CI: "true" };
 }
 
 export function runAgent(agent: AgentName, prompt: string, cwd: string): number {
@@ -65,7 +86,11 @@ export function runAgent(agent: AgentName, prompt: string, cwd: string): number 
   };
 
   const { binary, args } = invocations[agent];
-  const result = spawnSync(binary, args, { cwd, stdio: "inherit" });
+  const result = spawnSync(binary, args, {
+    cwd,
+    stdio: "inherit",
+    env: buildAgentEnv(process.env),
+  });
 
   if (result.error !== undefined) {
     throw new Error(
