@@ -72,8 +72,14 @@ Treat the check output as hints to improve your changes, not as a merge gate:
 - Do not stop at the first failing check. Run the gate to completion, collect
   every failure, and fix what you reasonably can while applying the changesets.
 - Your work is complete after these best-effort fixes, even if some checks still
-  fail. Remaining failures are surfaced to the reviewer by the pull request's
-  own CI run — never withhold or revert your commits because a check is red.
+  fail — never withhold or revert your commits because a check is red.
+- If any check still failed or could not complete, post one separate
+  information comment on the pull request that lists each such check with its
+  output and notes that this automated environment may lack prerequisites (for
+  example environment variables) that the pull request's own CI run has, so a
+  human can verify. Post it only when there are failed or incomplete checks; if
+  everything passed, post no such comment. It is in addition to the summary
+  comment and does not change the always-finalize behavior above.
 `;
 }
 
