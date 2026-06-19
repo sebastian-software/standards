@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.6.0](https://github.com/sebastian-software/standards/compare/standards-v0.5.0...standards-v0.6.0) (2026-06-19)
+
+
+### Features
+
+* post failed or incomplete agent checks as a PR information comment ([a67b045](https://github.com/sebastian-software/standards/commit/a67b04554f4e2f63c5798393c4e16361c61a9d0e))
+* post failed or incomplete agent checks as a PR information comment ([fe0b95c](https://github.com/sebastian-software/standards/commit/fe0b95c44aff582248b872b0e5454999dd187bf7))
+
 ## [0.5.0](https://github.com/sebastian-software/standards/compare/standards-v0.4.0...standards-v0.5.0) (2026-06-19)
 
 
