@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.6.1](https://github.com/sebastian-software/standards/compare/standards-v0.6.0...standards-v0.6.1) (2026-06-20)
+
+
+### Bug Fixes
+
+* bypass pnpm minimumReleaseAge on every standards dlx invocation ([932759c](https://github.com/sebastian-software/standards/commit/932759c355570203cdd3527df8eadeb9141ea57f))
+* bypass pnpm minimumReleaseAge on every standards dlx invocation ([a8f986b](https://github.com/sebastian-software/standards/commit/a8f986bb50588e2bbafb1669f4f6c03ad52c1308))
+
 ## [0.6.0](https://github.com/sebastian-software/standards/compare/standards-v0.5.0...standards-v0.6.0) (2026-06-19)
 
 
