@@ -35,4 +35,8 @@ jobs:
 
       - run: pnpm run --if-present test
 
-      - run: pnpm dlx @sebastian-software/standards check
+      # minimum-release-age=0 mirrors the apply invocation in renovate-config/standards.json:
+      # pnpm 11 defaults minimumReleaseAge to 1440 (24h), so without the bypass `check`
+      # resolves the newest standards older than a day while the stamp was written by apply
+      # against the true latest — a freshly released version then reads as false drift.
+      - run: pnpm --config.minimum-release-age=0 dlx @sebastian-software/standards check
