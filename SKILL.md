@@ -23,8 +23,12 @@ Human maintainers onboarding a brand-new repo (not handled by the agent
 yet): see [`docs/runbooks/onboard-repo.md`](docs/runbooks/onboard-repo.md)
 for the full step-by-step procedure.
 
-1. Run `pnpm dlx @sebastian-software/standards check`. If it reports
-   nothing, you are done.
+1. Run `pnpm --config.minimum-release-age=0 dlx @sebastian-software/standards check`.
+   If it reports nothing, you are done. The `--config.minimum-release-age=0` is
+   mandatory on every `pnpm dlx @sebastian-software/standards …` call: pnpm 11
+   holds back versions younger than 24h, but the stamp is written by `apply`
+   against the true latest, so without the bypass `check` resolves a stale CLI
+   and reports false drift right after a standards release.
 2. Run `standards apply`. It writes managed files, seeds missing ones, updates
    branding sections and bumps the stamp. This covers the mechanical part only.
 3. Read every entry in `changes/` with a number greater than the repo's

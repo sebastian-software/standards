@@ -101,11 +101,16 @@ Rust-only or documentation-only repos skip this step.
 ### 4. Initialise `.repometa.json`
 
 ```bash
-pnpm dlx @sebastian-software/standards init \
+pnpm --config.minimum-release-age=0 dlx @sebastian-software/standards init \
   --platform <github|forgejo> \
   --visibility <oss|private> \
   --since <year>
 ```
+
+`--config.minimum-release-age=0` is required on every `pnpm dlx
+@sebastian-software/standards …` call (init/check/apply): pnpm 11 holds back
+versions younger than 24h, so without it a repo onboarded right after a
+standards release seeds and stamps against a stale version.
 
 All flags are optional. Without `--yes`, missing values are prompted
 interactively:

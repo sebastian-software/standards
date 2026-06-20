@@ -70,7 +70,10 @@ standards sync    # apply + run an agent (claude or codex) locally on the pendin
 
 All managed repositories invoke this package via
 `pnpm dlx @sebastian-software/standards`; no devDependency installation is
-required, regardless of stack.
+required, regardless of stack. Every such invocation must carry
+`--config.minimum-release-age=0` — pnpm 11 defaults `minimumReleaseAge` to 24h,
+so without the bypass `dlx` resolves a version older than the one `apply` used
+to write the stamp, and `check` then reports false drift right after a release.
 
 ## Renovate-driven workflow
 
