@@ -140,9 +140,9 @@ describe("selectChanges and buildPrompt", () => {
       1, 2, 3,
     ]);
     expect(selectChanges(root, 1, ["common", "node"]).map((entry) => entry.version)).toStrictEqual([
-      2, 3, 4,
+      2, 3, 4, 5,
     ]);
-    expect(selectChanges(root, 4, ["common", "node"])).toHaveLength(0);
+    expect(selectChanges(root, 5, ["common", "node"])).toHaveLength(0);
     expect(selectChanges(root, 0, ["rust"])).toHaveLength(0);
   });
 
@@ -304,7 +304,6 @@ function unwrap<T>(value: T | undefined): T {
 
 const CONTRACT_PREFIXES = [
   ".oxfmtrc.json",
-  ".oxfmtignore",
   "eslint.config.ts",
   "oxlint.config.ts",
   "tsconfig.json",

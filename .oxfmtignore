@@ -1,7 +1,0 @@
-dist
-**/dist
-coverage
-node_modules
-pnpm-lock.yaml
-CHANGELOG.md
-.standards/
