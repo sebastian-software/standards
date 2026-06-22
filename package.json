@@ -1,6 +1,6 @@
 {
   "name": "@sebastian-software/standards",
-  "version": "0.6.1",
+  "version": "0.7.0",
   "description": "Repository standards for Sebastian Software — reference files, migration changelogs, agent instructions and a CLI to check and apply them.",
   "license": "MIT",
   "author": {
