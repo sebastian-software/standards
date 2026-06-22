@@ -140,9 +140,9 @@ describe("selectChanges and buildPrompt", () => {
       1, 2, 3,
     ]);
     expect(selectChanges(root, 1, ["common", "node"]).map((entry) => entry.version)).toStrictEqual([
-      2, 3, 4, 5,
+      2, 3, 4, 5, 6,
     ]);
-    expect(selectChanges(root, 5, ["common", "node"])).toHaveLength(0);
+    expect(selectChanges(root, 6, ["common", "node"])).toHaveLength(0);
     expect(selectChanges(root, 0, ["rust"])).toHaveLength(0);
   });
 
