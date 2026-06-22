@@ -116,7 +116,7 @@ server-side contract.
 
 | Kind        | Meaning                                              | Examples                            |
 | ----------- | ---------------------------------------------------- | ----------------------------------- |
-| **managed** | byte-exact, overwritten on apply                     | `.oxfmtrc.json`, `.oxfmtignore`     |
+| **managed** | byte-exact, overwritten on apply                     | `.oxfmtrc.json`                     |
 | **seeded**  | created once, repos may adapt them                   | `eslint.config.ts`, `tsconfig.json` |
 | **section** | marker-delimited README block owned by the standards | branding footer                     |
 

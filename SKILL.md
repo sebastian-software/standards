@@ -52,7 +52,7 @@ for the full step-by-step procedure.
   `standards apply` never re-writes seeded files after first creation
   (see `src/apply.ts` `applySeeded`). Examples of what to spell out: new
   CI step to merge in, new ESLint rule, additional `cspell.json`
-  dictionary entry, extra `.oxfmtignore` pattern. State which lines come
+  dictionary entry, extra `oxlint.config.ts` override. State which lines come
   from the reference file and which repo-specific lines stay untouched.
 - **Branding sections are owned by the standards.** Never hand-edit content
   between `<!-- sebastian-software-branding:start/end -->` markers; never
