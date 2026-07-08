@@ -44,9 +44,10 @@ is already a managed file, the patterns now propagate byte-exact to every repo.
 `standards apply` writes managed files but never deletes files it no longer
 manages, and it does not edit `package.json`. Spell these out per repo:
 
-1. **Delete the obsolete `.oxfmtignore`.** Its patterns now live in
-   `.oxfmtrc.json#ignorePatterns`. Remove any repo-specific extra patterns by
-   carrying them over into `ignorePatterns` first, then delete the file.
+1. **Delete the obsolete `.oxfmtignore`.** Its standards-owned baseline
+   patterns now live in `.oxfmtrc.json#ignorePatterns`. Do not add
+   repo-specific generated-artifact exceptions to managed `.oxfmtrc.json`;
+   handle those through the Consumer AGENTS guardrail instead.
 2. **Drop the `--ignore-path` indirection from package scripts.** Change the
    `format` / `format:check` scripts to plain `oxfmt --write .` /
    `oxfmt --check .`. Remove any other `--ignore-path .oxfmtignore` usage.
@@ -56,5 +57,7 @@ manages, and it does not edit `package.json`. Spell these out per repo:
 - `node_modules` and lock files such as `pnpm-lock.yaml` are ignored by oxfmt
   by default; keeping `pnpm-lock.yaml` in `ignorePatterns` is harmless and
   documents intent.
-- Future formatter ignores belong in `ignorePatterns`, not in a separate
-  ignore file.
+- Future standards-owned baseline formatter ignores belong in
+  `.oxfmtrc.json#ignorePatterns`. Consumer repo-specific generated artifacts
+  should be fixed or formatted first; only if that is not viable, use a
+  repo-local `.prettierignore` rather than changing managed `.oxfmtrc.json`.
