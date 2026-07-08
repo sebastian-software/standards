@@ -57,7 +57,7 @@ describe("upsertSection", () => {
   it("appends a missing section with a separator", () => {
     const result = upsertSection("# Title\n", "m", "body");
     expect(result.action).toBe("appended");
-    expect(result.content).toContain("<!-- m:start -->\nbody\n<!-- m:end -->");
+    expect(result.content).toContain("<!-- m:start -->\n\nbody\n<!-- m:end -->");
     expect(result.content).toContain("\n---\n");
   });
 
@@ -95,11 +95,16 @@ describe("apply and check", () => {
     expect(paths).toContain(".oxfmtrc.json");
     expect(paths).toContain("eslint.config.ts");
     expect(paths).toContain("README.md");
+    expect(paths).toContain("AGENTS.md");
     expect(paths).toContain(".repometa.json");
 
     const readme = readFileSync(join(cwd, "README.md"), "utf8");
     expect(readme).toContain("sebastian-software-branding:start");
     expect(readme).toContain("2020&ndash;2026");
+
+    const agents = readFileSync(join(cwd, "AGENTS.md"), "utf8");
+    expect(agents).toContain("sebastian-software-consumer-agents:start");
+    expect(agents).toContain("Do not hand-edit managed files");
 
     expect(runCheck(cwd, YEAR)).toStrictEqual([]);
 
@@ -111,6 +116,24 @@ describe("apply and check", () => {
     const repaired = runApply(cwd, YEAR);
     expect(repaired).toHaveLength(1);
     expect(runCheck(cwd, YEAR)).toStrictEqual([]);
+  });
+
+  it("detects drift in the consumer AGENTS section", () => {
+    const cwd = createFixtureRepo();
+
+    runApply(cwd, YEAR);
+    writeFileSync(
+      join(cwd, "AGENTS.md"),
+      "<!-- sebastian-software-consumer-agents:start -->\nstale\n<!-- sebastian-software-consumer-agents:end -->\n",
+    );
+
+    const findings = runCheck(cwd, YEAR);
+    expect(findings).toHaveLength(1);
+    expect(findings[0]).toMatchObject({
+      kind: "section",
+      path: "AGENTS.md",
+      detail: 'section "sebastian-software-consumer-agents" is outdated',
+    });
   });
 
   it("uses the plain footer for private repositories and keeps seeded files untouched", () => {
@@ -137,12 +160,14 @@ describe("selectChanges and buildPrompt", () => {
     const root = getPackageRoot();
 
     expect(selectChanges(root, 0, ["common"]).map((entry) => entry.version)).toStrictEqual([
-      1, 2, 3,
+      1, 2, 3, 7,
     ]);
     expect(selectChanges(root, 1, ["common", "node"]).map((entry) => entry.version)).toStrictEqual([
-      2, 3, 4, 5, 6,
+      2, 3, 4, 5, 6, 7,
     ]);
-    expect(selectChanges(root, 6, ["common", "node"])).toHaveLength(0);
+    expect(selectChanges(root, 6, ["common", "node"]).map((entry) => entry.version)).toStrictEqual([
+      7,
+    ]);
     expect(selectChanges(root, 0, ["rust"])).toHaveLength(0);
   });
 
@@ -311,6 +336,7 @@ const CONTRACT_PREFIXES = [
   "renovate.json",
   ".repometa.json",
   "README.md",
+  "AGENTS.md",
   ".standards/",
   ".github/",
 ];

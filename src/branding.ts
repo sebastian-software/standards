@@ -14,7 +14,7 @@ export type SectionResult = {
 export function upsertSection(content: string, marker: string, body: string): SectionResult {
   const start = `<!-- ${marker}:start -->`;
   const end = `<!-- ${marker}:end -->`;
-  const block = `${start}\n${body.trim()}\n${end}`;
+  const block = `${start}\n\n${body.trim()}\n${end}`;
 
   const startIndex = content.indexOf(start);
   const endIndex = content.indexOf(end);

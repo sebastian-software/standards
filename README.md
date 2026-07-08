@@ -143,6 +143,7 @@ The step-by-step procedure for adding a new repo to the standards system
 ---
 
 <!-- sebastian-software-branding:start -->
+
 <p align="center">
   <a href="https://oss.sebastian-software.com">
     <img src="https://sebastian-brand.vercel.app/sebastian-software/logo-software.svg" alt="Sebastian Software" width="240" />

@@ -24,6 +24,7 @@
     "reference",
     "changes",
     "manifest.json",
+    "CONSUMER-AGENTS.md",
     "SKILL.md"
   ],
   "type": "module",
