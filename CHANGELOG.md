@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.8.0](https://github.com/sebastian-software/standards/compare/standards-v0.7.0...standards-v0.8.0) (2026-07-08)
+
+
+### Features
+
+* add consumer agent guardrails ([38563cd](https://github.com/sebastian-software/standards/commit/38563cd67a6abcc8506bd2ba73c256bd6b825870))
+* add consumer agent guardrails ([b0aa242](https://github.com/sebastian-software/standards/commit/b0aa2425cb9924c0ae1bc5e0a34e3720939c42f7))
+
 ## [0.7.0](https://github.com/sebastian-software/standards/compare/standards-v0.6.1...standards-v0.7.0) (2026-06-22)
 
 
