@@ -1,0 +1,1 @@
+# Standards GitHub consumer fixture

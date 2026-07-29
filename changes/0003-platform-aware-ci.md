@@ -59,6 +59,7 @@ repos with `platform: "github"`. Forgejo follows in a later changelog
 - The seeded CI workflow's `pnpm/action-setup` version stays at
   whatever major is current at apply time (Renovate keeps it up to
   date once the file is in place).
-- The matching `.repometa.json` stamp in the fixture repo
-  `standards-test-repo2` is tracked separately as
-  `sebastian-software/standards-test-repo2#4`.
+- The matching `.repometa.json` stamp was originally validated in the
+  external fixture repo `standards-test-repo2`. That repo was archived
+  after deterministic consumer coverage moved to
+  `test/fixtures/github-consumer`.
