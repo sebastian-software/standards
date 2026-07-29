@@ -1,6 +1,7 @@
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import {
+  cpSync,
   existsSync,
   mkdirSync,
   mkdtempSync,
@@ -86,6 +87,15 @@ function createFixtureRepo(): string {
   return cwd;
 }
 
+function createVersionedFixtureRepo(name: string): string {
+  const source = join(import.meta.dirname, "fixtures", name);
+  const cwd = mkdtempSync(join(tmpdir(), `standards-${name}-`));
+  for (const entry of readdirSync(source)) {
+    cpSync(join(source, entry), join(cwd, entry), { recursive: true });
+  }
+  return cwd;
+}
+
 describe("apply and check", () => {
   it("brings a fresh node repo up to standards and detects drift afterwards", () => {
     const cwd = createFixtureRepo();
@@ -150,6 +160,28 @@ describe("apply and check", () => {
     expect(readme).toContain("All rights reserved");
     expect(readme).not.toContain("Work with us");
     expect(readFileSync(join(cwd, "eslint.config.ts"), "utf8")).toBe("// custom local config\n");
+  });
+});
+
+describe("versioned consumer fixtures", () => {
+  it("upgrades the historical github consumer fixture end to end", () => {
+    const cwd = createVersionedFixtureRepo("github-consumer");
+    const originalPackage = readFileSync(join(cwd, "package.json"), "utf8");
+    const originalRenovate = readFileSync(join(cwd, "renovate.json"), "utf8");
+
+    const changes = runApply(cwd, YEAR);
+    const paths = changes.map((change) => change.path);
+
+    expect(paths).toContain(".github/workflows/ci.yml");
+    expect(paths).not.toContain(".forgejo/workflows/ci.yml");
+    expect(existsSync(join(cwd, ".github/workflows/ci.yml"))).toBe(true);
+    expect(existsSync(join(cwd, ".forgejo/workflows/ci.yml"))).toBe(false);
+    expect(readStamp(cwd)).toBe(7);
+    expect(readFileSync(join(cwd, "package.json"), "utf8")).toBe(originalPackage);
+    expect(readFileSync(join(cwd, "renovate.json"), "utf8")).toBe(originalRenovate);
+    expect(readFileSync(join(cwd, "README.md"), "utf8")).toContain("All rights reserved");
+    expect(runCheck(cwd, YEAR)).toStrictEqual([]);
+    expect(runApply(cwd, YEAR)).toStrictEqual([]);
   });
 });
 
