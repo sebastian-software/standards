@@ -120,6 +120,18 @@ server-side contract.
 | **seeded**  | created once, repos may adapt them                   | `eslint.config.ts`, `tsconfig.json` |
 | **section** | marker-delimited README block owned by the standards | branding footer                     |
 
+## Optional release blueprints
+
+Repositories that intentionally release several Rust crates, npm packages, or
+both as one version can start from the
+[Release Please product templates](reference/release-please/README.md). The
+guide covers Node, Rust, and mixed Rust/Node layouts, initial history setup,
+publishing gates, and a publishing-free validation flow.
+
+These templates are packaged as references but are deliberately not managed or
+seeded by `standards apply`: choosing one shared product version instead of
+independent package releases is a repository-level compatibility decision.
+
 ## Development
 
 ```bash
