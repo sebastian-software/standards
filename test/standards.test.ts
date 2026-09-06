@@ -339,6 +339,21 @@ function rustScopeSources(): string[] {
   return [...scope.managed, ...scope.seeded].map((entry) => entry.source);
 }
 
+// A git action is pinned by a 40-hex commit SHA with the version in a trailing
+// comment; a `docker://` action by an immutable `@sha256:` digest, since an
+// image tag can be moved just like a git tag.
+const SHA_PINNED_ACTION = /^[^@\s]+@[0-9a-f]{40} # .+$/u;
+const DIGEST_PINNED_IMAGE = /^docker:\/\/[^@\s]+@sha256:[0-9a-f]{64}$/u;
+
+function isPinnedActionRef(reference: string): boolean {
+  if (reference.startsWith("docker://")) {
+    // The image tag before the digest carries the version, so a trailing
+    // comment is optional here.
+    return DIGEST_PINNED_IMAGE.test(reference.replace(/ # .*$/u, ""));
+  }
+  return SHA_PINNED_ACTION.test(reference);
+}
+
 function workflowActionRefs(workflow: string): string[] {
   // YAML indents with spaces; `\s*` here would let the anchor scan past newlines.
   return [...workflow.matchAll(/^ *- uses: (?<ref>.+)$/gmu)].map((match) => {
@@ -423,14 +438,41 @@ describe("rust scope", () => {
     expect(existsSync(join(cwd, ".github/workflows/publish.yml"))).toBe(false);
   });
 
-  it.each(["ci.yml", "publish.yml"])("pins every action in %s to a commit SHA", (file) => {
+  it.each(["ci.yml", "publish.yml"])("pins every action in %s", (file) => {
     const workflow = readFileSync(join(standardsRoot(), "reference", "rust", file), "utf8");
 
     const uses = workflowActionRefs(workflow);
     expect(uses.length).toBeGreaterThan(0);
-    for (const reference of uses) {
-      expect(reference).toMatch(/^[^@]+@[0-9a-f]{40} # .+$/u);
-    }
+    expect(uses.filter((reference) => !isPinnedActionRef(reference))).toStrictEqual([]);
+  });
+
+  it("holds docker actions to a digest, not an image tag", () => {
+    const sha = "0".repeat(40);
+    const digest = "f".repeat(64);
+
+    expect(isPinnedActionRef(`actions/checkout@${sha} # v7.0.1`)).toBe(true);
+    expect(isPinnedActionRef("actions/checkout@v7")).toBe(false);
+    expect(isPinnedActionRef(`actions/checkout@${sha}`)).toBe(false);
+    expect(isPinnedActionRef(`docker://ghcr.io/org/tool:1.2.3@sha256:${digest}`)).toBe(true);
+    expect(isPinnedActionRef(`docker://ghcr.io/org/tool@sha256:${digest} # 1.2.3`)).toBe(true);
+    expect(isPinnedActionRef("docker://ghcr.io/org/tool:1.2.3")).toBe(false);
+    expect(isPinnedActionRef("docker://ghcr.io/org/tool:latest")).toBe(false);
+    expect(isPinnedActionRef(`docker://ghcr.io/org/tool@${sha}`)).toBe(false);
+  });
+
+  it("binds the manual publish path to a release tag", () => {
+    const workflow = readFileSync(join(standardsRoot(), "reference/rust/publish.yml"), "utf8");
+
+    const dispatch = workflow.slice(
+      workflow.indexOf("  workflow_dispatch:"),
+      workflow.indexOf("\npermissions:"),
+    );
+    expect(dispatch).toContain("    inputs:\n      tag:\n");
+    expect(dispatch).toContain("        required: true\n");
+    expect(workflow).toMatch(
+      /ref: \$\{\{ inputs\.tag \|\| needs\.release-please\.outputs\.tag_name \}\}/u,
+    );
+    expect(workflow).not.toMatch(/ref: main/u);
   });
 
   it("documents the scope instead of deferring it", () => {
@@ -442,6 +484,16 @@ describe("rust scope", () => {
     expect(guide).toContain("MIT OR Apache-2.0");
     expect(guide).toContain("BSD-2-Clause");
     expect(guide).toContain("rustdoc-args");
+    expect(guide).toContain("Cargo.lock");
+  });
+
+  it("reads the MSRV through cargo instead of a regex over Cargo.toml", () => {
+    const ci = readFileSync(join(standardsRoot(), "reference/rust/ci.yml"), "utf8");
+
+    expect(ci).toContain("cargo metadata --no-deps --format-version 1");
+    expect(ci).not.toContain("sed -n");
+    // `rust-toolchain.toml` outranks the default toolchain; the lane must override it.
+    expect(ci).toContain("rustup override set");
   });
 });
 

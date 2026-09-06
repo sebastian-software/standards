@@ -7,7 +7,7 @@ a package or a virtual workspace, it makes no difference to detection.
 
 | File                  | Kind          | Why                                                                                   |
 | --------------------- | ------------- | ------------------------------------------------------------------------------------- |
-| `rustfmt.toml`        | **managed**   | Formatting must be identical everywhere, so it is byte-exact and not negotiable       |
+| `rustfmt.toml`        | **managed**   | Formatter options must be identical everywhere; the formatter itself is not pinned    |
 | `rust-toolchain.toml` | **seeded**    | Repositories that pin their MSRV here instead of tracking stable keep their own       |
 | `deny.toml`           | **seeded**    | The allow-list is org-wide, but reviewed per-crate exceptions are repository property |
 | `ci.yml`              | **reference** | Feature matrices, platforms and extra gates differ too much to seed byte-exact        |
@@ -15,6 +15,13 @@ a package or a virtual workspace, it makes no difference to detection.
 
 Managed files are rewritten by `standards apply`; seeded files are created once
 and then belong to the repository; reference files are copied by hand.
+
+`rustfmt.toml` fixes the options, not the formatter. CI checks formatting with
+the rustfmt of the repository's toolchain — current stable unless
+`rust-toolchain.toml` pins a version — and rustfmt defaults can shift between
+stable releases while `standards check` stays green. A repository that needs
+byte-stable output across releases pins its toolchain; the org does not pin one
+everywhere, because tracking stable is what the seeded file is for.
 
 There is deliberately **no `clippy.toml`**. That file configures lint knobs
 (thresholds, `msrv`, disallowed types), not lint levels, and the org has no
@@ -36,7 +43,9 @@ already reads the MSRV from `rust-version` in `Cargo.toml` — restating it in
   fails when the declared MSRV drifts from that rule.
 - `rust-version` in `Cargo.toml` is the **only** place the MSRV is decided.
   Every other mention — README badge, justfile, docs page, CI lane — is derived
-  from it. The MSRV job in `ci.yml` reads it with `sed` for exactly that reason.
+  from it. The MSRV job in `ci.yml` reads it with `cargo metadata` for exactly
+  that reason; that also resolves `rust-version.workspace = true` and fails when
+  workspace members disagree.
 
 ## License
 
@@ -97,12 +106,24 @@ tests on Linux, macOS and Windows, the MSRV lane, rustdoc with
 `RUSTDOCFLAGS=-D warnings`, cargo-deny, a conventional-commit title check, and
 the `standards check` drift lane with its `.standards/pending.json` guard.
 
+A committed root `Cargo.lock` is a prerequisite of the standard, libraries
+included: every cargo command in `ci.yml` runs with `--locked`, so dependency
+drift fails the build instead of resolving silently. Every family repository
+already commits one; a repository that does not must add it before copying the
+workflow.
+
 `publish.yml` follows the Release Please pattern from
 [`../release-please/README.md`](../release-please/README.md): one release job
 whose `releases_created` output gates the publish jobs. crates.io publishing
 uses `rust-lang/crates-io-auth-action` and falls back to
 `secrets.CARGO_REGISTRY_TOKEN`, because Trusted Publishing has to be enabled
-per crate and may not be configured yet.
+per crate and may not be configured yet. The `workflow_dispatch` path is for
+retries: it takes a required release `tag` and checks that tag out, never
+`main`, so a delayed retry publishes the sources the release was cut from and
+not whatever `main` has become since.
 
 Actions are pinned to full commit SHAs with the version in a trailing comment.
-Renovate updates the pins; a tag is not a pin.
+A `docker://` reference is pinned to an immutable `@sha256:` digest — an image
+tag can be moved just like a git tag, so a repository that carries a
+pin-check script must hold `docker://` uses to the digest rule instead of
+exempting them. Renovate updates both kinds of pin; a tag is not a pin.

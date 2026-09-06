@@ -100,22 +100,30 @@ true` in each member. A lints table that is defined but never inherited
 9. **Merge the CI skeleton.** Take fmt, Clippy `--all-targets --all-features -D
 warnings`, the three-OS test matrix, the MSRV lane, rustdoc with
    `RUSTDOCFLAGS=-D warnings`, cargo-deny, the conventional-commit title check
-   and the `standards check` lane from `reference/rust/ci.yml`. Keep the
+   and the `standards check` lane from `reference/rust/ci.yml`. Every lane runs
+   `--locked`, so commit a root `Cargo.lock` first if it is missing. Keep the
    repository's richer jobs (fuzzing, coverage, benchmarks, semver checks)
-   untouched. Pin every action to a full commit SHA with a version comment.
+   untouched. Pin every action to a full commit SHA with a version comment and
+   every `docker://` reference to an `@sha256:` digest. A copied pin-check
+   script (ferromark's `scripts/check-workflow-pins.rb` exempts `docker://`
+   references outright) has to require the digest instead.
 10. **Take the publish skeleton only where it fits.** `reference/rust/publish.yml`
     assumes the one-product Release Please shape. Read
     [`reference/release-please/README.md`](../reference/release-please/README.md)
     before adopting it, and report instead of restructuring a workspace that
     would need a new root package. Trusted Publishing has to be enabled per
     crate on crates.io; until then the `CARGO_REGISTRY_TOKEN` fallback carries
-    the publish.
+    the publish. Keep the manual path tag-bound: `workflow_dispatch` takes a
+    required release `tag` and checks that tag out, so a retry can never
+    publish newer sources from `main` under an existing version.
 
 ## Notes
 
 - Almost nothing here is managed on purpose. `rustfmt.toml` is the only
-  byte-exact file, because formatting is the one thing that must not differ
-  between two checkouts of the same repository.
+  byte-exact file, because formatter options are the one thing that must not
+  differ between two checkouts of the same repository. The formatter itself
+  still comes from the toolchain — stable, or the repository's pin — so rustfmt
+  output can shift between stable releases; pin the toolchain if that matters.
 - There is no `clippy.toml`. It configures lint knobs, not lint levels, and the
   org has no knob it wants everywhere; Clippy reads the MSRV from
   `rust-version` on its own, so putting it there would only create a second copy.

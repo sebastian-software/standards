@@ -5,6 +5,11 @@
 # ../release-please/README.md first: choosing one shared product version instead
 # of independently versioned crates is a repository-level decision.
 #
+# The manual path exists for retries only: when a publish job failed after the
+# release was cut, dispatch the workflow with that release's tag. It checks out
+# the tag, never `main`, so a delayed retry cannot publish newer sources under a
+# version that already exists.
+#
 # Replace the crate names in `publish-crates`, and add platform-artifact,
 # npm-wrapper or package-manager jobs the way the repository needs them.
 
@@ -13,6 +18,12 @@ name: publish
 on:
   push:
     branches: [main]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag to (re)publish, for example v1.2.3"
+        required: true
+        type: string
 
 permissions:
   contents: read
@@ -20,6 +31,7 @@ permissions:
 jobs:
   release-please:
     name: release please
+    if: ${{ github.event_name == 'push' }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
@@ -42,7 +54,13 @@ jobs:
   publish-crates:
     name: publish to crates.io
     needs: release-please
-    if: ${{ needs.release-please.outputs.releases_created == 'true' }}
+    # `!cancelled()` lets the job run when release-please was skipped by the
+    # manual path; a plain `needs` would skip it too.
+    if: >-
+      ${{ !cancelled() && (
+        (github.event_name == 'push' && needs.release-please.outputs.releases_created == 'true') ||
+        github.event_name == 'workflow_dispatch'
+      ) }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
     permissions:
@@ -53,7 +71,9 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: ${{ needs.release-please.outputs.tag_name }}
+          # Always the release tag: from release-please on the push path, from
+          # the operator on the manual path. Checkout fails on an unknown tag.
+          ref: ${{ inputs.tag || needs.release-please.outputs.tag_name }}
 
       - uses: dtolnay/rust-toolchain@4360b52568e2003a75bf9bc1d59f33a8e3fc893c # stable branch
 
