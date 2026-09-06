@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.9.0](https://github.com/sebastian-software/standards/compare/standards-v0.8.0...standards-v0.9.0) (2026-09-06)
+
+
+### Features
+
+* **ci:** pin the standards CLI that consumer CI executes ([#72](https://github.com/sebastian-software/standards/issues/72)) ([fb503f1](https://github.com/sebastian-software/standards/commit/fb503f1a8c8032aa0529976a44bbaebf4c34e73b))
+* **cli:** apply the node scope inside declared workspaces ([#74](https://github.com/sebastian-software/standards/issues/74)) ([50b6ba1](https://github.com/sebastian-software/standards/commit/50b6ba1a1046c45bb0d18a53da4239326ae4921e))
+* **release:** add the publish skeleton and shared composite actions ([#69](https://github.com/sebastian-software/standards/issues/69)) ([b8c5862](https://github.com/sebastian-software/standards/commit/b8c58627f5e1333bd2279a91788209f8ff63bdf3))
+
+
+### Bug Fixes
+
+* **common:** name a private reporting route that resolves ([#70](https://github.com/sebastian-software/standards/issues/70)) ([ef4e5fd](https://github.com/sebastian-software/standards/commit/ef4e5fd081fa68b9233b6fa980d2da7ca5731c40))
+
 ## [0.8.0](https://github.com/sebastian-software/standards/compare/standards-v0.7.0...standards-v0.8.0) (2026-09-06)
 
 
