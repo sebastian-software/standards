@@ -7,7 +7,7 @@ the CLI for mechanics, use judgement only where the changelogs require it.
 ## The model
 
 - Every managed repository carries a `.repometa.json`:
-  `{ "standards": <version>, "visibility": "oss" | "private", "since": <year>, "exceptions": [...] }`
+  `{ "standards": <version>, "visibility": "oss" | "private", "since": <year>, "exceptions": [...], "workspaces": [...] }`
 - `manifest.json` (in this package) defines the current standards version and,
   per scope, which files are **managed** (byte-exact sync), **seeded** (created
   once, repos may adapt them) and which README **sections** (marker-delimited
@@ -15,7 +15,10 @@ the CLI for mechanics, use judgement only where the changelogs require it.
 - `changes/NNNN-*.md` are migration changelogs. Each declares the scopes it
   applies to and describes intent, mechanical steps and judgement calls.
 - Scopes are detected from the working tree: `common` always applies, `node`
-  if `package.json` exists, `rust` if a root `Cargo.toml` exists.
+  if `package.json` exists, `rust` if a root `Cargo.toml` exists. Detection also
+  runs in every directory listed in `.repometa.json#workspaces`, where only the
+  manifest entries marked `workspace` apply — per-package configuration, never
+  the `common` scope, `renovate.json` or a CI workflow.
 
 ## Workflow
 
@@ -71,6 +74,11 @@ for the full step-by-step procedure.
 - **Respect `exceptions`.** Entries in `.repometa.json#exceptions` document
   deliberate deviations (e.g. `"keeps-prettier"`). Skip the matching steps and
   leave the exceptions in place.
+- **Declare a workspace, do not guess one.** A `package.json` inside the
+  repository is only managed when `.repometa.json#workspaces` lists its
+  directory. A vendored mirror, a fixture, or a generated platform sidecar is
+  not a workspace; adding one to the list is a judgement call, and removing a
+  directory somebody declared is one too.
 - **Respect `platform`.** Manifest entries without `platform` apply to every
   repo. Entries with `platform` apply only on a repo whose
   `.repometa.json#platform` matches. Legacy repos without `platform` skip

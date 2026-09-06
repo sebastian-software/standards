@@ -46,6 +46,25 @@ Every managed repository carries a `.repometa.json` stamp:
 { "standards": 3, "visibility": "oss", "since": 2026, "platform": "github" }
 ```
 
+A repository whose Node workspace lives in a subdirectory adds it, so scope
+detection runs there too:
+
+```json
+{
+  "standards": 12,
+  "visibility": "oss",
+  "since": 2026,
+  "platform": "github",
+  "workspaces": ["node"]
+}
+```
+
+Only per-package configuration lands in a workspace — the managed
+`.oxfmtrc.json` and the seeded lint, TypeScript and spelling configs.
+`renovate.json`, the CI workflows and the whole `common` scope stay at the
+root, and nothing is auto-discovered: a directory is managed because the
+repository declares it.
+
 This package defines the current standards version ([manifest.json](manifest.json)),
 the reference files per scope (`reference/common`, `reference/node`,
 `reference/rust`) and one migration changelog per version bump (`changes/`).

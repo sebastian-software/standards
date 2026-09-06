@@ -13,6 +13,12 @@ export type RepoMeta = {
   since: number;
   exceptions?: string[];
   platform?: Platform;
+  /**
+   * Directories that carry their own package manifest, relative to the
+   * repository root. Scope detection runs in each of them as well as at the
+   * root; see `detectUnits`.
+   */
+  workspaces?: string[];
 };
 
 export function isPlatform(value: unknown): value is Platform {
@@ -37,6 +43,40 @@ function assertRepoMeta(value: unknown): asserts value is RepoMeta {
   if (value.platform !== undefined && !isPlatform(value.platform)) {
     throw new Error(
       `Invalid ${REPO_META_FILE}: platform must be "github" or "forgejo" when present.`,
+    );
+  }
+  assertWorkspaces(value.workspaces);
+}
+
+function isWorkspacePath(value: string): boolean {
+  // A workspace path is written into file paths, so it stays inside the
+  // repository: relative, forward slashes, no `.` or `..` segment.
+  return (
+    value.length > 0 &&
+    !value.startsWith("/") &&
+    !value.includes("\\") &&
+    !value.split("/").some((segment) => segment.length === 0 || segment === "." || segment === "..")
+  );
+}
+
+function assertWorkspaces(value: unknown): asserts value is string[] | undefined {
+  if (value === undefined) {
+    return;
+  }
+  if (!Array.isArray(value) || !value.every((entry) => typeof entry === "string")) {
+    throw new Error(`Invalid ${REPO_META_FILE}: workspaces must be an array of strings.`);
+  }
+  const invalid = value.filter((entry) => !isWorkspacePath(entry));
+  if (invalid.length > 0) {
+    throw new Error(
+      `Invalid ${REPO_META_FILE}: workspaces must be relative paths inside the repository — got ${invalid.map((entry) => JSON.stringify(entry)).join(", ")}.`,
+    );
+  }
+  // A directory declared twice would be applied twice and reported twice.
+  const duplicates = value.filter((entry, index) => value.indexOf(entry) !== index);
+  if (duplicates.length > 0) {
+    throw new Error(
+      `Invalid ${REPO_META_FILE}: workspaces contains duplicate entries — ${[...new Set(duplicates)].map((entry) => JSON.stringify(entry)).join(", ")}.`,
     );
   }
 }

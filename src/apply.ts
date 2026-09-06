@@ -26,34 +26,36 @@ function writeTarget(cwd: string, target: string, content: string): void {
   writeFileSync(path, content, "utf8");
 }
 
-function applyManaged(context: SyncContext, scope: ScopeSpec): Change[] {
+function applyManaged(context: SyncContext, scope: ScopeSpec, dir: string): Change[] {
   return scope.managed
     .filter((mapping) => matchesPlatform(mapping.platform, context.meta.platform))
     .flatMap((mapping) => {
+      const target = join(dir, mapping.target);
       const reference = readReference(context, mapping.source);
-      const actual = readTarget(context, mapping.target);
+      const actual = readTarget(context, target);
       if (actual === reference) {
         return [];
       }
-      writeTarget(context.cwd, mapping.target, reference);
+      writeTarget(context.cwd, target, reference);
       return [
         {
-          path: mapping.target,
+          path: target,
           action: actual === undefined ? ("created" as const) : ("updated" as const),
         },
       ];
     });
 }
 
-function applySeeded(context: SyncContext, scope: ScopeSpec): Change[] {
+function applySeeded(context: SyncContext, scope: ScopeSpec, dir: string): Change[] {
   return scope.seeded
     .filter((mapping) => matchesPlatform(mapping.platform, context.meta.platform))
     .flatMap((mapping) => {
-      if (readTarget(context, mapping.target) !== undefined) {
+      const target = join(dir, mapping.target);
+      if (readTarget(context, target) !== undefined) {
         return [];
       }
-      writeTarget(context.cwd, mapping.target, readReference(context, mapping.source));
-      return [{ path: mapping.target, action: "seeded" as const }];
+      writeTarget(context.cwd, target, readReference(context, mapping.source));
+      return [{ path: target, action: "seeded" as const }];
     });
 }
 
@@ -84,12 +86,14 @@ export function runApply(cwd: string, currentYear: number, preReadMeta?: RepoMet
   const context = createContext(cwd, currentYear, preReadMeta);
   const changes: Change[] = [];
 
-  for (const scope of context.scopes) {
-    changes.push(
-      ...applyManaged(context, scope),
-      ...applySeeded(context, scope),
-      ...applySections(context, scope),
-    );
+  for (const unit of context.units) {
+    for (const scope of unit.scopes) {
+      changes.push(
+        ...applyManaged(context, scope, unit.dir),
+        ...applySeeded(context, scope, unit.dir),
+        ...applySections(context, scope),
+      );
+    }
   }
 
   const blockedByLegacyPlatform =
