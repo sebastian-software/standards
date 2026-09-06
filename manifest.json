@@ -1,5 +1,5 @@
 {
-  "currentVersion": 8,
+  "currentVersion": 9,
   "scopes": {
     "common": {
       "detect": "always",
@@ -83,8 +83,11 @@
     },
     "rust": {
       "detect": "Cargo.toml",
-      "managed": [],
-      "seeded": [],
+      "managed": [{ "source": "reference/rust/rustfmt.toml", "target": "rustfmt.toml" }],
+      "seeded": [
+        { "source": "reference/rust/rust-toolchain.toml", "target": "rust-toolchain.toml" },
+        { "source": "reference/rust/deny.toml", "target": "deny.toml" }
+      ],
       "sections": []
     }
   }
