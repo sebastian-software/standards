@@ -23,12 +23,22 @@ Human maintainers onboarding a brand-new repo (not handled by the agent
 yet): see [`docs/runbooks/onboard-repo.md`](docs/runbooks/onboard-repo.md)
 for the full step-by-step procedure.
 
-1. Run `pnpm --config.minimum-release-age=0 dlx @sebastian-software/standards check`.
-   If it reports nothing, you are done. The `--config.minimum-release-age=0` is
-   mandatory on every `pnpm dlx @sebastian-software/standards …` call: pnpm 11
-   holds back versions younger than 24h, but the stamp is written by `apply`
-   against the true latest, so without the bypass `check` resolves a stale CLI
-   and reports false drift right after a standards release.
+1. Run `standards check`. If it reports nothing, you are done. Use the
+   repository's own pinned CLI where there is one, so the run matches what its
+   CI executes:
+
+   ```sh
+   pnpm exec standards check                                      # node scope
+   pnpm --config.minimum-release-age=0 \
+     dlx @sebastian-software/standards@<pinned version> check     # rust only
+   ```
+
+   The `--config.minimum-release-age=0` is mandatory on every `dlx` call of
+   this package: pnpm 11 holds back versions younger than 24h, so without the
+   bypass a version released today cannot resolve at all. Raise the pin and run
+   `apply` in the same change — a CLI older than the stamp reports drift that
+   does not exist.
+
 2. Run `standards apply`. It writes managed files, seeds missing ones, updates
    branding sections and bumps the stamp. This covers the mechanical part only.
 3. Read every entry in `changes/` with a number greater than the repo's

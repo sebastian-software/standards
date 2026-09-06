@@ -109,6 +109,32 @@ tests on Linux, macOS and Windows, the MSRV lane, rustdoc with
 `RUSTDOCFLAGS=-D warnings`, cargo-deny, a conventional-commit title check, and
 the `standards check` drift lane with its `.standards/pending.json` guard.
 
+That drift lane runs a **pinned** CLI: `dlx @sebastian-software/standards@<x.y.z>`.
+A Rust-only repository has no lockfile to hold the version, so the pin lives in
+the workflow and Renovate keeps it current. Add this custom manager to the
+repository's `renovate.json` — or take it from the org preset once it moves
+there:
+
+```json
+{
+  "customManagers": [
+    {
+      "customType": "regex",
+      "description": "Keep the pinned standards CLI in the workflows current",
+      "managerFilePatterns": ["/^\\.github/workflows/.+\\.ya?ml$/"],
+      "matchStrings": ["@sebastian-software/standards@(?<currentValue>[^\\s]+) "],
+      "depNameTemplate": "@sebastian-software/standards",
+      "datasourceTemplate": "npm"
+    }
+  ]
+}
+```
+
+`managerFilePatterns` replaced `fileMatch` in Renovate 41; on an older worker
+the key is `fileMatch` with the same value. Raise the pin in the same pull
+request that runs `apply`, so the stamp and the CLI that checks it never
+disagree — a CLI older than the stamp reports drift that does not exist.
+
 A committed root `Cargo.lock` is a prerequisite of the standard, libraries
 included: every cargo command in `ci.yml` runs with `--locked`, so dependency
 drift fails the build instead of resolving silently. Every family repository
