@@ -28,6 +28,8 @@ import {
   parseVisibilityFlag,
   runInit,
 } from "../src/init.js";
+// Aliased: several tests destructure `getPackageRoot` from a dynamic import.
+import { loadManifest, getPackageRoot as standardsRoot } from "../src/manifest.js";
 import {
   assertPendingPayload,
   buildPendingPayload,
@@ -316,6 +318,133 @@ function readTaxonomy(packageRoot: string): {
   };
 }
 
+function createRustFixtureRepo(cargo = "[workspace]\n"): string {
+  const cwd = mkdtempSync(join(tmpdir(), "standards-rust-"));
+  writeFileSync(join(cwd, "Cargo.toml"), cargo);
+  writeFileSync(join(cwd, "README.md"), "# Demo\n");
+  writeFileSync(
+    join(cwd, ".repometa.json"),
+    `${JSON.stringify({ standards: 0, visibility: "oss", since: 2020, platform: "github" }, undefined, 2)}\n`,
+  );
+  return cwd;
+}
+
+const RUST_FILES = ["rustfmt.toml", "rust-toolchain.toml", "deny.toml"];
+
+function rustScopeSources(): string[] {
+  const scope = loadManifest(standardsRoot()).scopes.rust;
+  if (scope === undefined) {
+    throw new Error("manifest.json declares no rust scope");
+  }
+  return [...scope.managed, ...scope.seeded].map((entry) => entry.source);
+}
+
+function workflowActionRefs(workflow: string): string[] {
+  // YAML indents with spaces; `\s*` here would let the anchor scan past newlines.
+  return [...workflow.matchAll(/^ *- uses: (?<ref>.+)$/gmu)].map((match) => {
+    const reference = match.groups?.ref;
+    if (reference === undefined) {
+      throw new Error("named capture group did not match");
+    }
+    return reference;
+  });
+}
+
+describe("rust scope", () => {
+  it("detects a virtual workspace and seeds the toolchain files", () => {
+    const cwd = createRustFixtureRepo();
+
+    const paths = runApply(cwd, YEAR).map((change) => change.path);
+
+    expect(paths).toStrictEqual(expect.arrayContaining(RUST_FILES));
+    // No package.json, so nothing from the node scope may land.
+    expect(existsSync(join(cwd, "eslint.config.ts"))).toBe(false);
+    expect(existsSync(join(cwd, ".oxfmtrc.json"))).toBe(false);
+    expect(runCheck(cwd, YEAR)).toStrictEqual([]);
+  });
+
+  it("detects a root package as well as a workspace", () => {
+    const cwd = createRustFixtureRepo('[package]\nname = "demo"\n');
+
+    runApply(cwd, YEAR);
+
+    for (const file of RUST_FILES) {
+      expect(existsSync(join(cwd, file))).toBe(true);
+    }
+  });
+
+  it("leaves rust files out of a repository without Cargo.toml", () => {
+    const cwd = createFixtureRepo();
+
+    runApply(cwd, YEAR);
+
+    for (const file of RUST_FILES) {
+      expect(existsSync(join(cwd, file))).toBe(false);
+    }
+    expect(runCheck(cwd, YEAR)).toStrictEqual([]);
+  });
+
+  it("repairs a drifted rustfmt.toml because it is managed", () => {
+    const cwd = createRustFixtureRepo();
+    runApply(cwd, YEAR);
+    writeFileSync(join(cwd, "rustfmt.toml"), 'edition = "2021"\n');
+
+    const findings = runCheck(cwd, YEAR);
+    expect(findings).toHaveLength(1);
+    expect(findings[0]).toMatchObject({ kind: "managed", path: "rustfmt.toml" });
+
+    runApply(cwd, YEAR);
+    expect(readFileSync(join(cwd, "rustfmt.toml"), "utf8")).toContain('edition = "2024"');
+    expect(runCheck(cwd, YEAR)).toStrictEqual([]);
+  });
+
+  it("keeps a reviewed deny.toml and a pinned toolchain untouched", () => {
+    const cwd = createRustFixtureRepo();
+    const deny = '[licenses]\nexceptions = [{ allow = ["ISC"], crate = "ring" }]\n';
+    const toolchain = '[toolchain]\nchannel = "1.93"\n';
+    writeFileSync(join(cwd, "deny.toml"), deny);
+    writeFileSync(join(cwd, "rust-toolchain.toml"), toolchain);
+
+    runApply(cwd, YEAR);
+
+    expect(readFileSync(join(cwd, "deny.toml"), "utf8")).toBe(deny);
+    expect(readFileSync(join(cwd, "rust-toolchain.toml"), "utf8")).toBe(toolchain);
+    expect(runCheck(cwd, YEAR)).toStrictEqual([]);
+  });
+
+  it("ships the CI and publish skeletons as reference files only", () => {
+    const sources = rustScopeSources();
+    expect(sources).not.toContain("reference/rust/ci.yml");
+    expect(sources).not.toContain("reference/rust/publish.yml");
+
+    const cwd = createRustFixtureRepo();
+    runApply(cwd, YEAR);
+    expect(existsSync(join(cwd, ".github/workflows/ci.yml"))).toBe(false);
+    expect(existsSync(join(cwd, ".github/workflows/publish.yml"))).toBe(false);
+  });
+
+  it.each(["ci.yml", "publish.yml"])("pins every action in %s to a commit SHA", (file) => {
+    const workflow = readFileSync(join(standardsRoot(), "reference", "rust", file), "utf8");
+
+    const uses = workflowActionRefs(workflow);
+    expect(uses.length).toBeGreaterThan(0);
+    for (const reference of uses) {
+      expect(reference).toMatch(/^[^@]+@[0-9a-f]{40} # .+$/u);
+    }
+  });
+
+  it("documents the scope instead of deferring it", () => {
+    const guide = readFileSync(join(standardsRoot(), "reference/rust/README.md"), "utf8");
+
+    expect(guide).not.toContain("Not yet defined");
+    expect(guide).toContain("Edition 2024");
+    expect(guide).toContain("four stable releases behind current stable");
+    expect(guide).toContain("MIT OR Apache-2.0");
+    expect(guide).toContain("BSD-2-Clause");
+    expect(guide).toContain("rustdoc-args");
+  });
+});
+
 describe("label taxonomy", () => {
   it("declares unique labels with six-digit hex colors", async () => {
     const { getPackageRoot } = await import("../src/manifest.js");
@@ -386,15 +515,16 @@ describe("selectChanges and buildPrompt", () => {
     const root = getPackageRoot();
 
     expect(selectChanges(root, 0, ["common"]).map((entry) => entry.version)).toStrictEqual([
-      1, 2, 3, 7, 8,
+      1, 2, 3, 7, 8, 9,
     ]);
     expect(selectChanges(root, 1, ["common", "node"]).map((entry) => entry.version)).toStrictEqual([
-      2, 3, 4, 5, 6, 7, 8,
+      2, 3, 4, 5, 6, 7, 8, 9,
     ]);
-    expect(selectChanges(root, 7, ["common", "node"]).map((entry) => entry.version)).toStrictEqual([
-      8,
+    expect(selectChanges(root, 8, ["common", "node"]).map((entry) => entry.version)).toStrictEqual([
+      9,
     ]);
-    expect(selectChanges(root, 0, ["rust"])).toHaveLength(0);
+    // 0009 is the first entry a rust-only repository ever receives.
+    expect(selectChanges(root, 0, ["rust"]).map((entry) => entry.version)).toStrictEqual([9]);
   });
 
   it("builds an agent prompt containing skill and changelog", async () => {
@@ -567,6 +697,9 @@ const CONTRACT_PREFIXES = [
   "SECURITY.md",
   "CODE_OF_CONDUCT.md",
   "SUPPORT.md",
+  "rustfmt.toml",
+  "rust-toolchain.toml",
+  "deny.toml",
   ".standards/",
   ".github/",
 ];

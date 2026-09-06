@@ -15,7 +15,7 @@ the CLI for mechanics, use judgement only where the changelogs require it.
 - `changes/NNNN-*.md` are migration changelogs. Each declares the scopes it
   applies to and describes intent, mechanical steps and judgement calls.
 - Scopes are detected from the working tree: `common` always applies, `node`
-  if `package.json` exists, `rust` if `Cargo.toml` exists (not yet defined).
+  if `package.json` exists, `rust` if a root `Cargo.toml` exists.
 
 ## Workflow
 

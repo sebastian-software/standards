@@ -127,6 +127,11 @@ GitHub `.github/CODEOWNERS`, the three issue forms with their `config.yml`, and
 already has its own text keeps it; the merge strategy lives in
 [changes/0008-common-community-files.md](changes/0008-common-community-files.md).
 
+The `rust` scope adds a managed `rustfmt.toml` plus seeded `rust-toolchain.toml`
+and `deny.toml`, and ships CI and publish workflow skeletons as reference files.
+The edition, MSRV, license and Cargo metadata policy behind them is written down
+in [`reference/rust/README.md`](reference/rust/README.md).
+
 ## Label taxonomy
 
 One issue taxonomy for the whole org, shipped as data in

@@ -1,0 +1,78 @@
+# Rust publish skeleton — reference only, not seeded by `standards apply`.
+#
+# Release Please opens one release PR; merging it creates the tag and release,
+# and the gated publish jobs below run from that tag. Read
+# ../release-please/README.md first: choosing one shared product version instead
+# of independently versioned crates is a repository-level decision.
+#
+# Replace the crate names in `publish-crates`, and add platform-artifact,
+# npm-wrapper or package-manager jobs the way the repository needs them.
+
+name: publish
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  release-please:
+    name: release please
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+      pull-requests: write
+    outputs:
+      releases_created: ${{ steps.release.outputs.releases_created }}
+      tag_name: ${{ steps.release.outputs.tag_name }}
+    steps:
+      - id: release
+        uses: googleapis/release-please-action@45996ed1f6d02564a971a2fa1b5860e934307cf7 # v5.0.0
+        with:
+          config-file: release-please-config.json
+          manifest-file: .release-please-manifest.json
+          # Events created with the built-in GITHUB_TOKEN do not start new
+          # workflow runs. Provide a GitHub App token or PAT when CI has to run
+          # on the release PR itself.
+          token: ${{ secrets.RELEASE_PLEASE_TOKEN || secrets.GITHUB_TOKEN }}
+
+  publish-crates:
+    name: publish to crates.io
+    needs: release-please
+    if: ${{ needs.release-please.outputs.releases_created == 'true' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      # crates.io Trusted Publishing exchanges this OIDC token for a
+      # short-lived registry token. No secret is needed once it is enabled.
+      id-token: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.release-please.outputs.tag_name }}
+
+      - uses: dtolnay/rust-toolchain@4360b52568e2003a75bf9bc1d59f33a8e3fc893c # stable branch
+
+      # Trusted Publishing has to be enabled per crate on crates.io. Until that
+      # is done for every crate here, the step is allowed to fail and the
+      # classic CARGO_REGISTRY_TOKEN secret takes over below.
+      - name: Authenticate with crates.io
+        id: auth
+        continue-on-error: true
+        uses: rust-lang/crates-io-auth-action@c6f97d42243bad5fab37ca0427f495c86d5b1a18 # v1.0.5
+
+      - name: Publish crates in dependency order
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ steps.auth.outputs.token || secrets.CARGO_REGISTRY_TOKEN }}
+        shell: bash
+        run: |
+          test -n "$CARGO_REGISTRY_TOKEN"
+          # Leaves first: a crate must be on crates.io before a crate that
+          # depends on it is published.
+          for crate in my-product-core my-product; do
+            cargo publish -p "$crate" --locked
+          done
