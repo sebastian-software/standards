@@ -44,10 +44,14 @@ is enabled, then delete the input. The choice is explicit rather than a
 `continue-on-error` fallback, so a run cannot silently fall back to a
 long-lived secret that was supposed to be gone.
 
-Three properties make a re-run safe:
+Four properties make a re-run safe:
 
 - A crate whose version is already in the sparse index is skipped, so a partial
-  publish can be re-run without `crate already exists` errors.
+  publish can be re-run without `crate already exists` errors. The index path is
+  the lowercased crate name, which is the only path crates.io serves.
+- An index lookup that fails — a transport error or anything but 200 and 404 —
+  fails the job instead of being read as "not published yet". Guessing there is
+  what turns a re-run into a publish attempt for a version that already exists.
 - A failed `cargo publish` is retried once after `retry-delay`, which is what
   index propagation of the previous crate needs.
 - After each publish the action waits for the version to appear in the index
@@ -145,5 +149,11 @@ rule is a SHA and not a tag. Two consequences the generalized version keeps:
 Local `./…` references are exempt: they are part of the checkout. The scan is
 line-based, so it needs no dependency install in the job, and it recognizes the
 block (`- uses: x`), flow (`- { uses: x }`) and quoted (`"uses": x`) forms; a
-`uses` key in a shape it cannot classify is reported rather than skipped. Use
-`allow` for a reference that genuinely cannot be a SHA, and review the entry.
+`uses` key in a shape it cannot classify is reported rather than skipped.
+
+A key counts only where YAML can have one — at the start of a line, or after a
+`{` or `,` inside a flow mapping — so `run: grep 'uses:' ci.yml` and a comment
+mentioning the word are not steps. The one shape the line-based scan cannot
+tell apart is a `run:` block that writes YAML containing a `uses` key at the
+start of its own line. Use `allow` for that, and for a reference that genuinely
+cannot be a SHA; every entry belongs in a review.

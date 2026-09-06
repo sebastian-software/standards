@@ -72,8 +72,11 @@ runs:
 
         crate_index_path() {
           # Sparse index layout: 1/name, 2/name, 3/{first char}/name,
-          # {first two}/{next two}/name for longer names.
-          local crate="$1"
+          # {first two}/{next two}/name for longer names — and the path is
+          # always the lowercased crate name, so a crate with capitals in its
+          # name is not looked up under a URL that cannot exist.
+          local crate
+          crate="$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]')"
           case "${#crate}" in
             1) echo "1/${crate}" ;;
             2) echo "2/${crate}" ;;
@@ -82,21 +85,32 @@ runs:
           esac
         }
 
-        crate_version_exists() {
-          local crate="$1" version="$2" body
-          # Capture the body instead of piping, so a curl failure (network
-          # error, HTTP 5xx) stays distinguishable from "version not found".
-          if ! body="$(curl -fsSL --retry 3 "https://index.crates.io/$(crate_index_path "$crate")")"; then
-            echo "::warning::crates.io index lookup failed for ${crate}; treating ${version} as unpublished." >&2
-            return 1
-          fi
-          grep -qF "\"vers\":\"${version}\"" <<< "$body"
+        # 0 = the version is on crates.io, 1 = it is not, 2 = the lookup itself
+        # failed. Guessing between the last two is what re-publishes a version
+        # that already exists, so the caller decides what a failed lookup means.
+        # `-f` is deliberately not used: it collapses every HTTP error into one
+        # exit code, and a 404 (crate never published) has to stay
+        # distinguishable from a 5xx (crates.io having a bad minute).
+        index_status() {
+          local crate="$1" version="$2" response body http_code
+          response="$(curl -sSL --retry 3 -w $'\n%{http_code}' "https://index.crates.io/$(crate_index_path "$crate")")" ||
+            return 2
+          http_code="${response##*$'\n'}"
+          body="${response%$'\n'*}"
+          case "$http_code" in
+            200) grep -qF "\"vers\":\"${version}\"" <<< "$body" && return 0 || return 1 ;;
+            404) return 1 ;;
+            *)
+              echo "::warning::crates.io index returned HTTP ${http_code} for ${crate}." >&2
+              return 2
+              ;;
+          esac
         }
 
         await_index() {
           local crate="$1" version="$2" waited=0
           while [ "$waited" -lt "$INDEX_TIMEOUT" ]; do
-            if crate_version_exists "$crate" "$version"; then
+            if index_status "$crate" "$version"; then
               return 0
             fi
             sleep 10
@@ -108,7 +122,13 @@ runs:
         for crate in $CRATES; do
           version="$(crate_version "$crate")"
 
-          if crate_version_exists "$crate" "$version"; then
+          published=0
+          index_status "$crate" "$version" || published=$?
+          if [ "$published" -eq 2 ]; then
+            echo "::error::crates.io index lookup failed for ${crate}; refusing to guess whether ${version} is already published."
+            exit 1
+          fi
+          if [ "$published" -eq 0 ]; then
             echo "Skipping ${crate} ${version}; it is already on crates.io."
             continue
           fi
@@ -116,7 +136,7 @@ runs:
           if ! cargo publish -p "$crate" --locked; then
             # The usual cause is the previous crate not having propagated to the
             # index yet, so the dependency resolution for this one fails.
-            if crate_version_exists "$crate" "$version"; then
+            if index_status "$crate" "$version"; then
               echo "Skipping ${crate} ${version}; it appeared on crates.io during the failed attempt."
               continue
             fi

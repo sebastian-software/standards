@@ -11,13 +11,21 @@
 // parser. To keep that safe it recognizes every shape a `uses` key can take —
 // block (`- uses: x`), flow (`- { uses: x }`) and quoted (`"uses": x`) — and
 // fails loudly on any `uses` key it cannot classify rather than skipping it.
+//
+// A key is only recognized in a position where YAML can have one: at the start
+// of the line, or after a `{` or `,` inside a flow mapping. Otherwise a shell
+// command that mentions the word (`run: grep 'uses:' ci.yml`) or a prose
+// comment would be read as a step. The one shape this cannot tell apart is a
+// `run:` block that writes YAML with a `uses` key of its own at line start —
+// put such a reference in `allow`.
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join, relative } from "node:path";
 import process from "node:process";
 
-const USES_KEY = /(?:^|[\s{,])(?:uses|"uses"|'uses')\s*:/;
+const BLOCK_KEY = /^\s*(?:-\s*)?(?:uses|"uses"|'uses')\s*:/;
+const FLOW_KEY = /[{,]\s*(?:uses|"uses"|'uses')\s*:/;
 const BLOCK_USES = /^\s*(?:-\s*)?(?:uses|"uses"|'uses')\s*:\s*(?<ref>[^\s#]+)\s*(?<rest>.*)$/;
-const FLOW_USES = /(?:^|[\s{,])(?:uses|"uses"|'uses')\s*:\s*(?<ref>[^\s,}]+)/g;
+const FLOW_USES = /[{,]\s*(?:uses|"uses"|'uses')\s*:\s*(?<ref>[^\s,}]+)/g;
 const PINNED = /^[^\s@]+@[0-9a-f]{40}$/;
 const DOCKER_DIGEST = /^docker:\/\/[^\s@]+@sha256:[0-9a-f]{64}$/;
 const DOCKER = /^docker:\/\//;
@@ -35,17 +43,15 @@ function usesReferences(line) {
     return [{ ref: unquote(block.groups.ref), rest: block.groups.rest }];
   }
 
-  if (line.includes("{")) {
-    // A YAML comment can only sit at the end of the line — inside a flow
-    // mapping a `#` would end the mapping — so the rest of the line after the
-    // reference is where the version comment has to be.
-    const flow = [...line.matchAll(FLOW_USES)].map((match) => ({
-      ref: unquote(match.groups.ref),
-      rest: line.slice(match.index + match[0].length),
-    }));
-    if (flow.length > 0) {
-      return flow;
-    }
+  // A YAML comment can only sit at the end of the line — inside a flow mapping
+  // a `#` would end the mapping — so the rest of the line after the reference
+  // is where the version comment has to be.
+  const flow = [...line.matchAll(FLOW_USES)].map((match) => ({
+    ref: unquote(match.groups.ref),
+    rest: line.slice(match.index + match[0].length),
+  }));
+  if (flow.length > 0) {
+    return flow;
   }
 
   return null;
@@ -119,7 +125,7 @@ export function checkPins(targets, allow = []) {
   for (const file of files) {
     const lines = readFileSync(file, "utf8").split("\n");
     for (const [index, line] of lines.entries()) {
-      if (!USES_KEY.test(line)) {
+      if (!BLOCK_KEY.test(line) && !FLOW_KEY.test(line)) {
         continue;
       }
       const location = `${relative(process.cwd(), file) || file}:${index + 1}`;
