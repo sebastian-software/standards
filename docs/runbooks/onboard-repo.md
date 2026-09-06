@@ -179,8 +179,9 @@ See
 Private vulnerability reporting is a **per-repository GitHub
 setting**, off by default, and no `standards` command can set it —
 the CLI writes files, not repository settings. Until it is on, the
-`security/advisories/new` link that the seeded issue chooser and
-`SECURITY.md` name simply 404s, which is why the seeds put the
+`security/advisories/new` link in the seeded issue chooser 404s and
+the Security tab has no "Report a vulnerability" button for
+`SECURITY.md` to point at, which is why the seeds put the
 `security@sebastian-software.de` inbox first (see
 [`changes/0010-private-reporting-routes.md`](../../changes/0010-private-reporting-routes.md)).
 

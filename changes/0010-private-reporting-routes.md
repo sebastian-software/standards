@@ -48,6 +48,15 @@ only into repositories that do not have the file yet:
 
 This is the shape sebastian-software/agent-bridge#125 already landed by hand.
 
+The address lives in the entry's `about` text, not in its `url`. GitHub's issue
+chooser only renders a contact link whose URL is `http` or `https`, so a
+`mailto:` entry would be dropped from the chooser — precisely in the repository
+where the advisory route is not available either. Both `url` values are
+repo-independent GitHub documentation pages that the judgement step below
+replaces with this repository's own, the same way change 0008 already treated
+the advisory link: seeded files are copied verbatim, so a reference must never
+carry a repository name.
+
 ## Judgement steps (agent work, common scope)
 
 1. **Replace the Reporting section of an existing `CODE_OF_CONDUCT.md`.**
@@ -57,12 +66,22 @@ This is the shape sebastian-software/agent-bridge#125 already landed by hand.
    is. A file that says "contact the maintainers privately through GitHub"
    without naming an address is the exact defect this version fixes — it must
    name `security@sebastian-software.de`.
-2. **Give the issue chooser both routes.** Replace the single security entry in
-   `.github/ISSUE_TEMPLATE/config.yml` with the two from the reference, and
-   replace the second entry's documentation URL with this repository's own form,
-   `https://github.com/sebastian-software/<repo>/security/advisories/new` (the
-   judgement step from change 0008, unchanged). Keep repository-specific extra
-   links, such as a contributor guide, **below** the two security entries.
+2. **Give the issue chooser both routes, pointed at this repository.** Replace
+   the single security entry in `.github/ISSUE_TEMPLATE/config.yml` with the two
+   from the reference, then replace both documentation URLs with this
+   repository's own:
+
+   - the email entry → `https://github.com/sebastian-software/<repo>/blob/main/SECURITY.md`,
+     which states the same address and is where a reporter who follows the link
+     ends up;
+   - the advisory entry → `https://github.com/sebastian-software/<repo>/security/advisories/new`
+     (the judgement step from change 0008, unchanged).
+
+   Keep the address in the `about` text — that is the part a reader sees without
+   clicking, and the part that survives when the advisory route does not exist.
+   Keep repository-specific extra links, such as a contributor guide, **below**
+   the two security entries.
+
 3. **Enable private vulnerability reporting.** It is a per-repository GitHub
    setting, off by default, and no CLI in this package can set it:
 
@@ -101,8 +120,9 @@ This is the shape sebastian-software/agent-bridge#125 already landed by hand.
   describes the advisory route as an action in the Security tab rather than a
   link that can 404, so a reader who finds the tab empty still has the address
   in the same section.
-- The email route is a `mailto:` link in the issue chooser. GitHub renders
-  contact links verbatim, so the reporter's mail client opens with the right
-  address instead of the reporter copying it out of a policy file.
+- The email entry deliberately links to `SECURITY.md` rather than opening a mail
+  client: GitHub's issue chooser drops a contact link whose URL is not `http` or
+  `https`, and a route that disappears from the chooser is exactly the failure
+  this version is about.
 - Nothing here needs the label taxonomy, a workflow, or a CLI change; the two
   reference files and the runbook note are the whole version.
