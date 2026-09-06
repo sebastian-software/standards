@@ -1,10 +1,45 @@
 {
-  "currentVersion": 7,
+  "currentVersion": 8,
   "scopes": {
     "common": {
       "detect": "always",
       "managed": [],
-      "seeded": [],
+      "seeded": [
+        { "source": "reference/common/security.md", "target": "SECURITY.md" },
+        { "source": "reference/common/code-of-conduct.md", "target": "CODE_OF_CONDUCT.md" },
+        { "source": "reference/common/support.md", "target": "SUPPORT.md" },
+        { "source": "reference/common/claude-pointer.md", "target": "CLAUDE.md" },
+        {
+          "source": "reference/common/codeowners",
+          "target": ".github/CODEOWNERS",
+          "platform": "github"
+        },
+        {
+          "source": "reference/common/github-issue-template-bug-report.yml",
+          "target": ".github/ISSUE_TEMPLATE/bug_report.yml",
+          "platform": "github"
+        },
+        {
+          "source": "reference/common/github-issue-template-feature-request.yml",
+          "target": ".github/ISSUE_TEMPLATE/feature_request.yml",
+          "platform": "github"
+        },
+        {
+          "source": "reference/common/github-issue-template-question.yml",
+          "target": ".github/ISSUE_TEMPLATE/question.yml",
+          "platform": "github"
+        },
+        {
+          "source": "reference/common/github-issue-template-config.yml",
+          "target": ".github/ISSUE_TEMPLATE/config.yml",
+          "platform": "github"
+        },
+        {
+          "source": "reference/common/github-pull-request-template.md",
+          "target": ".github/pull_request_template.md",
+          "platform": "github"
+        }
+      ],
       "sections": [
         {
           "file": "README.md",

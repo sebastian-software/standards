@@ -57,8 +57,16 @@ describe("upsertSection", () => {
   it("appends a missing section with a separator", () => {
     const result = upsertSection("# Title\n", "m", "body");
     expect(result.action).toBe("appended");
-    expect(result.content).toContain("<!-- m:start -->\n\nbody\n<!-- m:end -->");
+    expect(result.content).toContain("<!-- m:start -->\n\nbody\n\n<!-- m:end -->");
     expect(result.content).toContain("\n---\n");
+  });
+
+  it("keeps a blank line before the end marker so oxfmt does not fight apply", () => {
+    const body = "- one\n- two";
+    const appended = upsertSection("# Title\n", "m", body);
+    expect(appended.content).toContain(`${body}\n\n<!-- m:end -->`);
+    // Re-running against the formatter-stable shape must be a no-op.
+    expect(upsertSection(appended.content, "m", body).action).toBe("unchanged");
   });
 
   it("replaces an outdated section in place", () => {
@@ -97,6 +105,13 @@ describe("apply and check", () => {
     expect(paths).toContain("README.md");
     expect(paths).toContain("AGENTS.md");
     expect(paths).toContain(".repometa.json");
+    expect(paths).toContain("SECURITY.md");
+    expect(paths).toContain("CODE_OF_CONDUCT.md");
+    expect(paths).toContain("SUPPORT.md");
+    expect(paths).toContain("CLAUDE.md");
+    expect(paths).toContain(".github/CODEOWNERS");
+    expect(paths).toContain(".github/ISSUE_TEMPLATE/bug_report.yml");
+    expect(paths).toContain(".github/pull_request_template.md");
 
     const readme = readFileSync(join(cwd, "README.md"), "utf8");
     expect(readme).toContain("sebastian-software-branding:start");
@@ -153,6 +168,217 @@ describe("apply and check", () => {
   });
 });
 
+const COMMUNITY_FILES = ["SECURITY.md", "CODE_OF_CONDUCT.md", "SUPPORT.md", "CLAUDE.md"];
+
+const GITHUB_COMMUNITY_FILES = [
+  ".github/CODEOWNERS",
+  ".github/ISSUE_TEMPLATE/bug_report.yml",
+  ".github/ISSUE_TEMPLATE/feature_request.yml",
+  ".github/ISSUE_TEMPLATE/question.yml",
+  ".github/ISSUE_TEMPLATE/config.yml",
+  ".github/pull_request_template.md",
+];
+
+describe("common community files", () => {
+  it("seeds every community file on a github repo and then reports no drift", () => {
+    const cwd = createFixtureRepo();
+
+    runApply(cwd, YEAR);
+
+    for (const file of [...COMMUNITY_FILES, ...GITHUB_COMMUNITY_FILES]) {
+      expect(existsSync(join(cwd, file))).toBe(true);
+    }
+    expect(runCheck(cwd, YEAR)).toStrictEqual([]);
+  });
+
+  it("seeds CLAUDE.md as a bare AGENTS.md pointer", () => {
+    const cwd = createFixtureRepo();
+
+    runApply(cwd, YEAR);
+
+    expect(readFileSync(join(cwd, "CLAUDE.md"), "utf8")).toBe("@AGENTS.md\n");
+  });
+
+  it("names both private reporting channels and a supported-versions rule that cannot go stale", () => {
+    const cwd = createFixtureRepo();
+
+    runApply(cwd, YEAR);
+
+    const security = readFileSync(join(cwd, "SECURITY.md"), "utf8");
+    expect(security).toContain("security@sebastian-software.de");
+    expect(security).toContain("Report a vulnerability");
+    expect(security).toContain("the latest release on the default branch");
+  });
+
+  it("disables blank issues and keeps seeded files free of per-repo URLs", () => {
+    const cwd = createFixtureRepo();
+
+    runApply(cwd, YEAR);
+
+    expect(readFileSync(join(cwd, ".github/ISSUE_TEMPLATE/config.yml"), "utf8")).toContain(
+      "blank_issues_enabled: false",
+    );
+    // Seeded files are copied verbatim (`applySeeded` never calls
+    // `renderTemplate`), so no reference may hardcode a repository name.
+    for (const file of [...COMMUNITY_FILES, ...GITHUB_COMMUNITY_FILES]) {
+      expect(readFileSync(join(cwd, file), "utf8")).not.toContain("github.com/sebastian-software/");
+    }
+  });
+
+  it("keeps an existing community file untouched", () => {
+    const cwd = createFixtureRepo();
+    writeFileSync(join(cwd, "SECURITY.md"), "# Custom policy\n");
+
+    runApply(cwd, YEAR);
+
+    expect(readFileSync(join(cwd, "SECURITY.md"), "utf8")).toBe("# Custom policy\n");
+    expect(runCheck(cwd, YEAR)).toStrictEqual([]);
+  });
+
+  it("skips the github-scoped community files on a forgejo repo", () => {
+    const cwd = createFixtureRepo();
+    writeFileSync(
+      join(cwd, ".repometa.json"),
+      `${JSON.stringify({ standards: 0, visibility: "oss", since: 2020, platform: "forgejo" }, undefined, 2)}\n`,
+    );
+
+    runApply(cwd, YEAR);
+
+    for (const file of COMMUNITY_FILES) {
+      expect(existsSync(join(cwd, file))).toBe(true);
+    }
+    for (const file of GITHUB_COMMUNITY_FILES) {
+      expect(existsSync(join(cwd, file))).toBe(false);
+    }
+    expect(runCheck(cwd, YEAR)).toStrictEqual([]);
+  });
+});
+
+type LabelEntry = { color: string; description: string; name: string };
+type PrefixEntry = { color: string; description: string; prefix: string };
+type Migration = { from: string; to: string };
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
+}
+
+function isUnknownArray(value: unknown): value is unknown[] {
+  return Array.isArray(value);
+}
+
+function readString(entry: Record<string, unknown>, key: string): string {
+  const value = entry[key];
+  if (typeof value !== "string" || value === "") {
+    throw new TypeError(`labels.json: entry is missing a non-empty "${key}"`);
+  }
+  return value;
+}
+
+function readEntries(raw: Record<string, unknown>, key: string): Array<Record<string, unknown>> {
+  const value = raw[key];
+  if (!isUnknownArray(value)) {
+    throw new TypeError(`labels.json: "${key}" is not an array`);
+  }
+  return value.map((entry) => {
+    if (!isRecord(entry)) {
+      throw new TypeError(`labels.json: "${key}" contains a non-object entry`);
+    }
+    return entry;
+  });
+}
+
+function readTaxonomy(packageRoot: string): {
+  labels: LabelEntry[];
+  migrations: Migration[];
+  prefixes: PrefixEntry[];
+} {
+  const raw: unknown = JSON.parse(
+    readFileSync(join(packageRoot, "reference/common/labels.json"), "utf8"),
+  );
+  if (!isRecord(raw)) {
+    throw new TypeError("labels.json is not an object");
+  }
+  return {
+    labels: readEntries(raw, "labels").map((entry) => ({
+      color: readString(entry, "color"),
+      description: readString(entry, "description"),
+      name: readString(entry, "name"),
+    })),
+    migrations: readEntries(raw, "migrations").map((entry) => ({
+      from: readString(entry, "from"),
+      to: readString(entry, "to"),
+    })),
+    prefixes: readEntries(raw, "prefixes").map((entry) => ({
+      color: readString(entry, "color"),
+      description: readString(entry, "description"),
+      prefix: readString(entry, "prefix"),
+    })),
+  };
+}
+
+describe("label taxonomy", () => {
+  it("declares unique labels with six-digit hex colors", async () => {
+    const { getPackageRoot } = await import("../src/manifest.js");
+    const taxonomy = readTaxonomy(getPackageRoot());
+
+    const names = taxonomy.labels.map((entry) => entry.name);
+    expect(new Set(names).size).toBe(names.length);
+    for (const entry of taxonomy.labels) {
+      expect(entry.color).toMatch(/^[0-9a-f]{6}$/u);
+    }
+    expect(names).toStrictEqual(
+      expect.arrayContaining([
+        "type:bug",
+        "type:feature",
+        "type:docs",
+        "type:chore",
+        "priority:P0",
+        "priority:P1",
+        "priority:P2",
+        "priority:P3",
+        "epic",
+        "cross-repo",
+        "good first issue",
+        "dependencies",
+      ]),
+    );
+    expect(taxonomy.prefixes.map((entry) => entry.prefix)).toStrictEqual(["area:"]);
+  });
+
+  it("maps every legacy spelling onto a defined label or prefix", async () => {
+    const { getPackageRoot } = await import("../src/manifest.js");
+    const taxonomy = readTaxonomy(getPackageRoot());
+
+    const targets = new Set([
+      ...taxonomy.labels.map((entry) => entry.name),
+      ...taxonomy.prefixes.map((entry) => entry.prefix),
+    ]);
+    for (const migration of taxonomy.migrations) {
+      expect(targets.has(migration.to)).toBe(true);
+      expect(targets.has(migration.from)).toBe(false);
+    }
+    expect(taxonomy.migrations.map((entry) => entry.from)).toStrictEqual(
+      expect.arrayContaining(["priority:low", "priority: P2", "P3", "category:"]),
+    );
+  });
+
+  it("only applies labels the taxonomy defines from the seeded issue forms", async () => {
+    const { getPackageRoot } = await import("../src/manifest.js");
+    const packageRoot = getPackageRoot();
+    const names = new Set(readTaxonomy(packageRoot).labels.map((entry) => entry.name));
+
+    const forms = [
+      { file: "github-issue-template-bug-report.yml", label: "type:bug" },
+      { file: "github-issue-template-feature-request.yml", label: "type:feature" },
+      { file: "github-issue-template-question.yml", label: "question" },
+    ];
+    for (const { file, label } of forms) {
+      expect(names.has(label)).toBe(true);
+      expect(readFileSync(join(packageRoot, "reference/common", file), "utf8")).toContain(label);
+    }
+  });
+});
+
 describe("selectChanges and buildPrompt", () => {
   it("filters changelog entries by version and scope", async () => {
     const { selectChanges } = await import("../src/changes.js");
@@ -160,13 +386,13 @@ describe("selectChanges and buildPrompt", () => {
     const root = getPackageRoot();
 
     expect(selectChanges(root, 0, ["common"]).map((entry) => entry.version)).toStrictEqual([
-      1, 2, 3, 7,
+      1, 2, 3, 7, 8,
     ]);
     expect(selectChanges(root, 1, ["common", "node"]).map((entry) => entry.version)).toStrictEqual([
-      2, 3, 4, 5, 6, 7,
+      2, 3, 4, 5, 6, 7, 8,
     ]);
-    expect(selectChanges(root, 6, ["common", "node"]).map((entry) => entry.version)).toStrictEqual([
-      7,
+    expect(selectChanges(root, 7, ["common", "node"]).map((entry) => entry.version)).toStrictEqual([
+      8,
     ]);
     expect(selectChanges(root, 0, ["rust"])).toHaveLength(0);
   });
@@ -337,6 +563,10 @@ const CONTRACT_PREFIXES = [
   ".repometa.json",
   "README.md",
   "AGENTS.md",
+  "CLAUDE.md",
+  "SECURITY.md",
+  "CODE_OF_CONDUCT.md",
+  "SUPPORT.md",
   ".standards/",
   ".github/",
 ];

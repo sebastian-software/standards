@@ -9,4 +9,5 @@
 - For generated files, prefer formatting in the generator step.
 - If formatting is not viable, use repo-local `.prettierignore`.
 - Never add repo-specific ignores to managed `.oxfmtrc.json`.
+
 <!-- sebastian-software-consumer-agents:end -->

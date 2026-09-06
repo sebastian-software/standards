@@ -114,11 +114,62 @@ server-side contract.
 
 ## File ownership
 
-| Kind        | Meaning                                              | Examples                            |
-| ----------- | ---------------------------------------------------- | ----------------------------------- |
-| **managed** | byte-exact, overwritten on apply                     | `.oxfmtrc.json`                     |
-| **seeded**  | created once, repos may adapt them                   | `eslint.config.ts`, `tsconfig.json` |
-| **section** | marker-delimited README block owned by the standards | branding footer                     |
+| Kind        | Meaning                                              | Examples                          |
+| ----------- | ---------------------------------------------------- | --------------------------------- |
+| **managed** | byte-exact, overwritten on apply                     | `.oxfmtrc.json`                   |
+| **seeded**  | created once, repos may adapt them                   | `SECURITY.md`, `eslint.config.ts` |
+| **section** | marker-delimited README block owned by the standards | branding footer                   |
+
+The `common` scope seeds the community baseline — `SECURITY.md`,
+`CODE_OF_CONDUCT.md`, `SUPPORT.md`, a `CLAUDE.md` pointer at `AGENTS.md`, and on
+GitHub `.github/CODEOWNERS`, the three issue forms with their `config.yml`, and
+`.github/pull_request_template.md`. Because they are seeded, a repository that
+already has its own text keeps it; the merge strategy lives in
+[changes/0008-common-community-files.md](changes/0008-common-community-files.md).
+
+## Label taxonomy
+
+One issue taxonomy for the whole org, shipped as data in
+[`reference/common/labels.json`](reference/common/labels.json):
+
+| Group         | Labels                                                                       |
+| ------------- | ---------------------------------------------------------------------------- |
+| **type**      | `type:bug`, `type:feature`, `type:docs`, `type:chore`                        |
+| **priority**  | `priority:P0` (drop everything) … `priority:P3` (backlog)                    |
+| **area**      | `area:<subsystem>` — the prefix is org-wide, the values are per repo         |
+| **workflow**  | `epic`, `cross-repo`, `good first issue`, `dependencies`, `question`         |
+| **standards** | `standards:needs-agent`, `standards:needs-review` (see [SKILL.md](SKILL.md)) |
+
+Issues labeled `epic` use the title convention `Epic: …`. The seeded issue forms
+apply `type:bug`, `type:feature` and `question` automatically.
+
+The CLI does not manage labels — applying them is a one-shot `gh` call per repo:
+
+```bash
+# create or update every label from the taxonomy
+jq -r '.labels[] | [.name, .color, .description] | @tsv' reference/common/labels.json |
+  while IFS=$'\t' read -r name color description; do
+    gh label create "$name" --color "$color" --description "$description" --force
+  done
+```
+
+Rename the existing per-repo spellings instead of recreating them, so open
+issues keep their labels:
+
+```bash
+gh label edit "priority:low" --name "priority:P3"
+```
+
+| Existing label                          | Taxonomy                                  |
+| --------------------------------------- | ----------------------------------------- |
+| `priority:P0` (ferriki)                 | unchanged                                 |
+| `priority:low` (ferrolex)               | `priority:P3`                             |
+| `priority: P2` (dalo, with space)       | `priority:P2`                             |
+| `P3` (palamedes)                        | `priority:P3`                             |
+| `category:<x>`                          | `area:<x>`                                |
+| `bug` / `enhancement` / `documentation` | `type:bug` / `type:feature` / `type:docs` |
+
+The full mapping is the `migrations` array in `labels.json`.
 
 ## Optional release blueprints
 
@@ -168,4 +219,5 @@ The step-by-step procedure for adding a new repo to the standards system
 </p>
 
 <p align="center">Copyright &copy; 2026 Sebastian Software GmbH</p>
+
 <!-- sebastian-software-branding:end -->

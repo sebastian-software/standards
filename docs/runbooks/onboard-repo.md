@@ -24,8 +24,8 @@ Two variants are covered:
   what the agent does.
 - [README.md](../../README.md) — three-repo overview, Renovate
   model, file ownership table.
-- [`CLAUDE.md`](../../CLAUDE.md) — local Claude Code instructions
-  (if present in your dev environment).
+- [`CLAUDE.md`](../../CLAUDE.md) — the seeded one-line pointer at
+  `AGENTS.md`, so Claude Code and other agents read the same file.
 - Changelogs:
   [`0001-baseline.md`](../../changes/0001-baseline.md),
   [`0002-renovate-pending.md`](../../changes/0002-renovate-pending.md),
@@ -227,6 +227,17 @@ policy in [SKILL.md#merge-policy](../../SKILL.md#merge-policy).
 
 The final merge is **always a human step**. Automerge is
 deliberately disabled for `standards:` PRs.
+
+### 9. Apply the label taxonomy
+
+Labels are org-wide policy but not managed by the CLI. Create them
+once per repo from `reference/common/labels.json` and rename any
+pre-existing spellings instead of recreating them, so open issues keep
+their labels. The `gh label` snippets and the migration table live in
+[README.md#label-taxonomy](../../README.md#label-taxonomy).
+
+Values of the `area:` prefix are repository-specific — pick them from
+the repo's actual subsystems.
 
 ## Variant B — Legacy repo onboarding
 
