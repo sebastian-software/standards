@@ -50,9 +50,10 @@ advice about `oxfmt` and `.prettierignore` that did not apply to it. The block
 is still one byte-exact text for every consumer, now split into a scope-agnostic
 core plus a Node group and a Rust group.
 
-Not seeded, copied by hand: `reference/rust/ci.yml` and
-`reference/rust/publish.yml`, for the same reason the Release Please templates
-are not seeded — feature matrices, platform lists and release boundaries are
+Not seeded, copied by hand: `reference/rust/ci.yml` and the publish skeleton
+(`reference/rust/publish.yml` at the time of this version, moved to
+`reference/release-please/publish-skeleton.yml` afterwards), for the same
+reason the Release Please templates are not seeded — feature matrices, platform lists and release boundaries are
 repository decisions. See [`reference/rust/README.md`](../reference/rust/README.md).
 
 ## Judgement steps (agent work, rust scope)
@@ -107,7 +108,9 @@ warnings`, the three-OS test matrix, the MSRV lane, rustdoc with
    every `docker://` reference to an `@sha256:` digest. A copied pin-check
    script (ferromark's `scripts/check-workflow-pins.rb` exempts `docker://`
    references outright) has to require the digest instead.
-10. **Take the publish skeleton only where it fits.** `reference/rust/publish.yml`
+10. **Take the publish skeleton only where it fits.** The publish skeleton —
+    `reference/rust/publish.yml` when this version shipped, now
+    `reference/release-please/publish-skeleton.yml` —
     assumes the one-product Release Please shape. Read
     [`reference/release-please/README.md`](../reference/release-please/README.md)
     before adopting it, and report instead of restructuring a workspace that

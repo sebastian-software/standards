@@ -4,6 +4,9 @@ const config = await getEslintConfig({ node: true, oxlint: true });
 
 config.unshift({
   ignores: [
+    // Composite-action scripts run on the GitHub runner's Node, outside the
+    // TypeScript project; oxlint still lints them.
+    ".github/actions/**",
     "bin/**",
     "**/dist/**",
     "coverage/**",

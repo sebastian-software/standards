@@ -1,0 +1,49 @@
+name: napi platform matrix
+description: >-
+  Emit the org-wide @napi-rs/cli platform matrix — runner, Rust target, npm
+  os/cpu/libc — plus the derived sidecar package, artifact and binary names, so
+  a repository declares its platform list in one place.
+
+inputs:
+  package:
+    description: >-
+      The main npm package name, scope included. Sidecars are derived as
+      `<package>-<platform id>`, so a scoped package keeps its scope.
+    required: true
+  platforms:
+    description: >-
+      Platform ids to include, space- or comma-separated. Empty means every
+      platform in the list.
+    required: false
+    default: ""
+  exclude:
+    description: Platform ids to drop from the selection.
+    required: false
+    default: ""
+
+outputs:
+  matrix:
+    description: >-
+      JSON object with an `include` array, ready for
+      `strategy: matrix: ${{ fromJSON(...) }}`. Each entry carries `id`,
+      `target`, `runner`, `os`, `cpu`, `libc`, `native`, `sidecar`, `artifact`
+      and `binary`.
+    value: ${{ steps.matrix.outputs.matrix }}
+  platform-ids:
+    description: Space-separated platform ids, for shell loops over the selection.
+    value: ${{ steps.matrix.outputs.platform-ids }}
+  sidecars:
+    description: JSON array of the sidecar package names.
+    value: ${{ steps.matrix.outputs.sidecars }}
+
+runs:
+  using: composite
+  steps:
+    - name: Build the platform matrix
+      id: matrix
+      shell: bash
+      env:
+        INPUT_PACKAGE: ${{ inputs.package }}
+        INPUT_PLATFORMS: ${{ inputs.platforms }}
+        INPUT_EXCLUDE: ${{ inputs.exclude }}
+      run: node "$GITHUB_ACTION_PATH/napi-matrix.mjs"

@@ -185,36 +185,93 @@ starting version explicitly in the root manifest entry.
 ## Publish from one release signal
 
 Run Release Please once and make every publisher depend on the plural
-`releases_created` output:
+`releases_created` output. [`publish-skeleton.yml`](publish-skeleton.yml) is
+that workflow, ready to copy to `.github/workflows/publish.yml`:
 
 ```yaml
 jobs:
-  release-please:
-    runs-on: ubuntu-latest
-    outputs:
-      releases_created: ${{ steps.release.outputs.releases_created }}
-    steps:
-      - id: release
-        uses: googleapis/release-please-action@v5
-        with:
-          config-file: release-please-config.json
-          manifest-file: .release-please-manifest.json
-
-  publish-rust:
-    needs: release-please
-    if: ${{ needs.release-please.outputs.releases_created == 'true' }}
-    # Publish crates in dependency order.
-
-  publish-npm:
-    needs: release-please
-    if: ${{ needs.release-please.outputs.releases_created == 'true' }}
-    # Build and publish npm packages.
+  release-please: # the only job that runs unconditionally on push
+  publish-crates: # gated on releases_created, uses the publish-crates action
+  native-matrix: # the napi platform list, as a job matrix
+  build-native: # one job per platform, uploads native-<id>
+  publish-npm: # gated on the build, uses the publish-npm action
 ```
 
-Keep platform builds, dependency-aware crate ordering, and Trusted Publishing
-in their existing jobs. If CI must run on release PRs, authenticate Release
-Please with a suitable GitHub App or personal access token: events created by
-the repository's built-in `GITHUB_TOKEN` do not trigger new workflow runs.
+Keep only the jobs the repository needs. The three release-shaped steps that
+every repository used to hand-write — dependency-ordered crate publishing with
+an index-propagation retry, npm publishing with provenance and a dist-tag, and
+the napi platform list — are shared composite actions in this repository,
+documented in [`.github/actions/README.md`](../../.github/actions/README.md)
+and referenced by commit SHA.
+
+Both registries authenticate through Trusted Publishing (OIDC), which needs
+`permissions: id-token: write` on the publishing job and has to be enabled per
+crate and per package. Until it is, both actions take an explicit fallback
+token input; the fallback is a named input rather than a silent
+`continue-on-error` retry, so nobody has to guess which credential a green run
+actually used.
+
+The skeleton's `workflow_dispatch` path is a retry, not a second way to
+release: it takes a required release `tag` and every job checks that tag out,
+never `main`, so a delayed retry publishes the sources the release was cut from.
+
+If CI must run on release PRs, authenticate Release Please with a suitable
+GitHub App or personal access token: events created by the repository's
+built-in `GITHUB_TOKEN` do not trigger new workflow runs.
+
+## Lockfiles for npm sidecar packages
+
+A native package ships one main package plus one sidecar per platform
+(`<main>-<platform>`, in the main package's scope). All of them carry the
+product version, and the main package depends on the sidecars.
+
+Reference the sidecars from the main package with the workspace protocol:
+
+```json
+{
+  "optionalDependencies": {
+    "my-product-darwin-arm64": "workspace:*",
+    "my-product-linux-x64-gnu": "workspace:*"
+  }
+}
+```
+
+`workspace:*` resolves to the sidecar's current version at pack time, so
+Release Please updates one `version` field per package and nothing else. Then
+prove the lockfile agrees, on the generated release candidate:
+
+```sh
+pnpm install --lockfile-only
+git diff --exit-code
+```
+
+Do **not** add `jsonpath` `extra-files` entries that reach into
+`pnpm-lock.yaml` or `package-lock.json`. A lockfile is generated state with a
+format that changes between package-manager releases; a version written into it
+by a template is a second source of truth that goes stale silently, and it
+takes one entry per package per lockfile section — the audited repositories had
+eight and ten of them. The lockfile no-diff check above is the same guarantee
+in one line, and it fails loudly.
+
+## Migration notes per repository
+
+What each repository that deviates from the skeleton has to change. The
+tracking issue is in the repository's own epic.
+
+| Repository            | Today                                                                                                   | To match the skeleton                                                                                                                               |
+| --------------------- | ------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **ferroni** (#98)     | `publish.yml` with release-please, Trusted Publishing and a `CARGO_REGISTRY_TOKEN` fallback             | Replace the inline publish step with `publish-crates` (one crate, so the ordering is trivial); drop the reusable workflow from ferramenta           |
+| **ferralk** (#370)    | `release-type: simple` with 15 `extra-files`, including `Cargo.lock` jsonpaths; publish on release      | Make `ferralk` a real root package and switch to `release-type: rust`, which updates the members and the lockfile natively; then adopt the skeleton |
+| **ferromark** (#266)  | `release-type: rust` with 24 `extra-files`, including 8 `pnpm-lock.yaml` jsonpaths                      | Replace the lockfile jsonpaths with `workspace:` references plus the lockfile no-diff check; adopt `napi-matrix` for the eight platforms            |
+| **ferrolex** (#259)   | `cargo-workspace` plugin, 9 npm `extra-files`, publish through `scripts/publish-crates.py` with a token | Replace the Python publisher with `publish-crates` (same ordering, same index wait) and move crates.io to Trusted Publishing                        |
+| **palamedes** (#1154) | `release-type: simple` with 44 `extra-files` (4 Cargo.toml, 4 Cargo.lock, 36 package.json)              | Move to the rust/node template with a real root package, so Cargo and the lockfile are updated natively and only Node versions stay typed entries   |
+| **dalo** (#720)       | `release-type: rust`, draft releases, signed archives, Homebrew dispatch, crates.io token               | Keep the draft-release and Homebrew jobs; swap the token publish step for `publish-crates` with Trusted Publishing                                  |
+| **ferrocat**          | Matches the pattern, with its own `publish_with_retry` shell function                                   | Replace the inline function with `publish-crates`; the behavior is the same, including the already-published skip                                   |
+| **ferriki**           | `release-type: node`, five napi platforms, hand-listed download steps                                   | Adopt `napi-matrix` and `publish-npm`; the sidecar names already follow `<main>-<platform>`                                                         |
+
+Verify the current state before acting on a row: several of these repositories
+moved during the 2026-09 alignment, and an epic may already have closed part of
+its own row.
 
 ## Prove the candidate without publishing
 

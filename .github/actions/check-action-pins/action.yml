@@ -1,0 +1,33 @@
+name: Check action pins
+description: >-
+  Fail when a workflow or composite action references a third-party action by
+  anything other than a full 40-character commit SHA with a version comment, or
+  a docker:// image by anything other than an immutable @sha256: digest.
+
+inputs:
+  paths:
+    description: >-
+      Newline- or space-separated files and directories to scan. Directories are
+      walked recursively for *.yml and *.yaml.
+    required: false
+    default: .github/workflows
+  allow:
+    description: >-
+      Newline-separated `uses` values that are exempt, verbatim. The escape
+      hatch for references that cannot be a SHA, for example a reusable workflow
+      addressed through an expression. Every entry belongs in a review.
+    required: false
+    default: ""
+
+runs:
+  using: composite
+  steps:
+    - name: Check action pins
+      shell: bash
+      env:
+        INPUT_PATHS: ${{ inputs.paths }}
+        ALLOWED_USES: ${{ inputs.allow }}
+      run: |
+        # Word splitting is the point: `paths` is a list.
+        # shellcheck disable=SC2086
+        node "$GITHUB_ACTION_PATH/check-action-pins.mjs" $INPUT_PATHS
