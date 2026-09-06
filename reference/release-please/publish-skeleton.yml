@@ -1,0 +1,212 @@
+# Publish skeleton — reference only, not seeded by `standards apply`.
+#
+# One product, one release signal: Release Please opens a single release pull
+# request; merging it creates the tag and the GitHub Release, and the gated
+# publish jobs below run from that tag. Read ./README.md first — choosing one
+# shared product version instead of independently versioned packages is a
+# repository-level decision, not a publishing shortcut.
+#
+# Keep only the publish jobs the repository actually needs: `publish-crates`
+# for crates.io, `native-matrix` plus `build-native` plus `publish-npm` for an
+# npm package with @napi-rs sidecars, `publish-npm` alone for a pure JavaScript
+# package.
+#
+# The manual path exists for retries only: when a publish job failed after the
+# release was cut, dispatch the workflow with that release's tag. Every job
+# checks out `inputs.tag || needs.release-please.outputs.tag_name` — the release
+# tag, never `main` — so a delayed retry cannot publish newer sources under a
+# version that already exists, and an unknown tag fails the checkout. (A
+# workflow-level `env` cannot hold that expression: the `needs` context is not
+# available there.)
+#
+# Every action is pinned to a full commit SHA with the version in a trailing
+# comment. The shared composite actions live in this repository; pin them to the
+# commit of a standards release and let Renovate move the pin:
+#
+#   git ls-remote https://github.com/sebastian-software/standards \
+#     'refs/tags/standards-v0.9.0^{}'
+#
+# and write the result as
+#
+#   uses: sebastian-software/standards/.github/actions/publish-crates@<sha> # v0.9.0
+#
+# The zeroed SHAs below are placeholders. See ../../.github/actions/README.md
+# for the inputs of each composite action.
+
+name: publish
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag to (re)publish, for example v1.2.3"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  release-please:
+    name: release please
+    if: ${{ github.event_name == 'push' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+      pull-requests: write
+    outputs:
+      releases_created: ${{ steps.release.outputs.releases_created }}
+      tag_name: ${{ steps.release.outputs.tag_name }}
+    steps:
+      - id: release
+        uses: googleapis/release-please-action@45996ed1f6d02564a971a2fa1b5860e934307cf7 # v5.0.0
+        with:
+          config-file: release-please-config.json
+          manifest-file: .release-please-manifest.json
+          # Events created with the built-in GITHUB_TOKEN do not start new
+          # workflow runs. Provide a GitHub App token or PAT when CI has to run
+          # on the release PR itself.
+          token: ${{ secrets.RELEASE_PLEASE_TOKEN || secrets.GITHUB_TOKEN }}
+
+  publish-crates:
+    name: publish to crates.io
+    needs: release-please
+    # `!cancelled()` lets the job run when release-please was skipped by the
+    # manual path; a plain `needs` would skip it too.
+    if: >-
+      ${{ !cancelled() && (
+        (github.event_name == 'push' && needs.release-please.outputs.releases_created == 'true') ||
+        github.event_name == 'workflow_dispatch'
+      ) }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      # crates.io Trusted Publishing exchanges this OIDC token for a
+      # short-lived registry token. No secret is needed once it is enabled.
+      id-token: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.tag || needs.release-please.outputs.tag_name }}
+
+      - uses: dtolnay/rust-toolchain@4360b52568e2003a75bf9bc1d59f33a8e3fc893c # stable branch
+
+      - uses: sebastian-software/standards/.github/actions/publish-crates@0000000000000000000000000000000000000000 # v0.9.0
+        with:
+          # Leaves first: a crate must be on crates.io before a crate that
+          # depends on it is published.
+          crates: |
+            my-product-core
+            my-product
+          # Drop `token` once Trusted Publishing is enabled for every crate.
+          token: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+
+  native-matrix:
+    name: napi platform matrix
+    needs: release-please
+    if: >-
+      ${{ !cancelled() && (
+        (github.event_name == 'push' && needs.release-please.outputs.releases_created == 'true') ||
+        github.event_name == 'workflow_dispatch'
+      ) }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      matrix: ${{ steps.platforms.outputs.matrix }}
+      platform-ids: ${{ steps.platforms.outputs.platform-ids }}
+    steps:
+      - id: platforms
+        uses: sebastian-software/standards/.github/actions/napi-matrix@0000000000000000000000000000000000000000 # v0.9.0
+        with:
+          package: my-product
+
+  build-native:
+    name: build ${{ matrix.id }}
+    needs: [release-please, native-matrix]
+    if: ${{ !cancelled() && needs.native-matrix.result == 'success' }}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.native-matrix.outputs.matrix) }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.tag || needs.release-please.outputs.tag_name }}
+
+      - uses: dtolnay/rust-toolchain@4360b52568e2003a75bf9bc1d59f33a8e3fc893c # stable branch
+        with:
+          targets: ${{ matrix.target }}
+
+      # Build the addon for `matrix.target` and place it as `matrix.binary`
+      # inside the sidecar package directory, the way the repository's own napi
+      # build script does it. `matrix.libc` is "musl" for the two musl targets,
+      # which need their own linker.
+      - run: pnpm run build:native --target ${{ matrix.target }}
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: ${{ matrix.artifact }}
+          path: npm/${{ matrix.id }}/${{ matrix.binary }}
+          if-no-files-found: error
+          retention-days: 1
+
+  publish-npm:
+    name: publish to npm
+    needs: [release-please, native-matrix, build-native]
+    if: ${{ !cancelled() && needs.build-native.result == 'success' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      # npm Trusted Publishing and the provenance attestation both use this
+      # OIDC token. No NPM_TOKEN is needed once Trusted Publishing is enabled.
+      id-token: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.tag || needs.release-please.outputs.tag_name }}
+
+      - uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+          registry-url: https://registry.npmjs.org
+          cache: pnpm
+
+      # npm Trusted Publishing needs npm 11.5.1 or newer; the npm that ships
+      # with Node 24 is older.
+      - run: npm install --global npm@latest
+
+      - run: pnpm install --frozen-lockfile
+
+      # Every artifact lands in a directory named after itself, so the addons
+      # arrive as `.native/native-<id>/<binary>` and are moved back into their
+      # sidecar packages.
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          pattern: native-*
+          path: .native
+      - name: Place the addons in their sidecar packages
+        env:
+          PLATFORM_IDS: ${{ needs.native-matrix.outputs.platform-ids }}
+        run: |
+          for id in $PLATFORM_IDS; do
+            mkdir -p "npm/$id"
+            mv ".native/native-$id/"* "npm/$id/"
+          done
+
+      - run: pnpm run build
+
+      - uses: sebastian-software/standards/.github/actions/publish-npm@0000000000000000000000000000000000000000 # v0.9.0
+        with:
+          # Sidecars first: the main package's optional dependencies must exist
+          # before it is installable. The ids come from `native-matrix`.
+          packages: |
+            npm/linux-x64-gnu
+            npm/darwin-arm64
+            .

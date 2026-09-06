@@ -11,10 +11,13 @@ a package or a virtual workspace, it makes no difference to detection.
 | `rust-toolchain.toml` | **seeded**    | Repositories that pin their MSRV here instead of tracking stable keep their own       |
 | `deny.toml`           | **seeded**    | The allow-list is org-wide, but reviewed per-crate exceptions are repository property |
 | `ci.yml`              | **reference** | Feature matrices, platforms and extra gates differ too much to seed byte-exact        |
-| `publish.yml`         | **reference** | Release boundaries are a repository decision — see `../release-please/README.md`      |
 
 Managed files are rewritten by `standards apply`; seeded files are created once
 and then belong to the repository; reference files are copied by hand.
+
+There is no `publish.yml` here any more. It grew npm and native-artifact jobs
+and moved next to the release templates that decide the release boundary:
+[`../release-please/publish-skeleton.yml`](../release-please/publish-skeleton.yml).
 
 `rustfmt.toml` fixes the options, not the formatter. CI checks formatting with
 the rustfmt of the repository's toolchain — current stable unless
@@ -112,12 +115,16 @@ drift fails the build instead of resolving silently. Every family repository
 already commits one; a repository that does not must add it before copying the
 workflow.
 
-`publish.yml` follows the Release Please pattern from
-[`../release-please/README.md`](../release-please/README.md): one release job
+Publishing is no longer a Rust-scope file. The former `publish.yml` grew npm
+and native-artifact jobs and moved to
+[`../release-please/publish-skeleton.yml`](../release-please/publish-skeleton.yml),
+next to the release templates that decide the release boundary: one release job
 whose `releases_created` output gates the publish jobs. crates.io publishing
-uses `rust-lang/crates-io-auth-action` and falls back to
-`secrets.CARGO_REGISTRY_TOKEN`, because Trusted Publishing has to be enabled
-per crate and may not be configured yet. The `workflow_dispatch` path is for
+runs through the shared
+[`publish-crates`](../../.github/actions/README.md#publish-crates) composite
+action, which uses `rust-lang/crates-io-auth-action` and takes an optional
+`secrets.CARGO_REGISTRY_TOKEN` because Trusted Publishing has to be enabled per
+crate and may not be configured yet. The `workflow_dispatch` path is for
 retries: it takes a required release `tag` and checks that tag out, never
 `main`, so a delayed retry publishes the sources the release was cut from and
 not whatever `main` has become since.
@@ -126,4 +133,7 @@ Actions are pinned to full commit SHAs with the version in a trailing comment.
 A `docker://` reference is pinned to an immutable `@sha256:` digest — an image
 tag can be moved just like a git tag, so a repository that carries a
 pin-check script must hold `docker://` uses to the digest rule instead of
-exempting them. Renovate updates both kinds of pin; a tag is not a pin.
+exempting them. Renovate updates both kinds of pin; a tag is not a pin. The
+[`check-action-pins`](../../.github/actions/README.md#check-action-pins)
+composite action enforces exactly that rule and replaces the per-repository
+copies of the script.

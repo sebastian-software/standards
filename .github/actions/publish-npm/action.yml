@@ -1,0 +1,107 @@
+name: Publish npm packages
+description: >-
+  Publish one or more npm packages with provenance, in the given order, deriving
+  the dist-tag from the version's prerelease suffix so a release candidate never
+  lands on `latest`. Authenticates through npm Trusted Publishing unless a
+  fallback token is supplied.
+
+inputs:
+  packages:
+    description: >-
+      Ordered package directories, platform sidecars before the main package —
+      the main package's optional dependencies must exist before it is
+      installable. Newline- or space-separated, relative to `working-directory`.
+    required: false
+    default: "."
+  dist-tag:
+    description: >-
+      npm dist-tag. Empty derives it from the version: `1.2.3` publishes to
+      `latest`, `1.2.3-rc.1` to `rc`, `1.2.3-next.4` to `next`.
+    required: false
+    default: ""
+  access:
+    description: npm access level for a first publish.
+    required: false
+    default: public
+  provenance:
+    description: >-
+      Attach a provenance attestation. Needs `permissions: id-token: write`.
+    required: false
+    default: "true"
+  token:
+    description: >-
+      Fallback npm automation token. Leave empty to use Trusted Publishing,
+      which needs npm 11.5.1 or newer and `permissions: id-token: write`, and no
+      secret at all. A first-ever publish of a package name cannot use Trusted
+      Publishing, because the package does not exist yet.
+    required: false
+    default: ""
+  working-directory:
+    description: Directory the npm commands run in.
+    required: false
+    default: "."
+
+outputs:
+  dist-tag:
+    description: The dist-tag the packages were published under.
+    value: ${{ steps.publish.outputs.dist-tag }}
+
+runs:
+  using: composite
+  steps:
+    - name: Publish packages
+      id: publish
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      env:
+        PACKAGES: ${{ inputs.packages }}
+        DIST_TAG: ${{ inputs.dist-tag }}
+        ACCESS: ${{ inputs.access }}
+        PROVENANCE: ${{ inputs.provenance }}
+        NODE_AUTH_TOKEN: ${{ inputs.token }}
+      run: |
+        set -euo pipefail
+
+        # Word splitting is the point: `packages` is a list.
+        # shellcheck disable=SC2206
+        packages=($PACKAGES)
+        if [ "${#packages[@]}" -eq 0 ]; then
+          echo "::error::No package directories given."
+          exit 1
+        fi
+
+        package_version() {
+          node -p "JSON.parse(require('node:fs').readFileSync('$1/package.json','utf8')).version"
+        }
+
+        tag="$DIST_TAG"
+        if [ -z "$tag" ]; then
+          # The last entry is the main package, and it carries the version the
+          # dist-tag is derived from. Indexed the long way round for bash 3.2.
+          version="$(package_version "${packages[$((${#packages[@]} - 1))]}")"
+          if [[ "$version" == *-* ]]; then
+            prerelease="${version#*-}"
+            identifier="${prerelease%%.*}"
+            identifier="${identifier%%+*}"
+            # A purely numeric identifier (1.2.3-1) is not a usable dist-tag.
+            if [[ "$identifier" =~ ^[0-9]+$ ]]; then
+              tag="next"
+            else
+              tag="$identifier"
+            fi
+          else
+            tag="latest"
+          fi
+          echo "Derived dist-tag ${tag} from version ${version}."
+        fi
+        echo "dist-tag=${tag}" >> "$GITHUB_OUTPUT"
+
+        for package in "${packages[@]}"; do
+          echo "::group::npm publish ${package} (${tag})"
+          if [ "$PROVENANCE" = "true" ]; then
+            npm publish "$package" --access "$ACCESS" --tag "$tag" --provenance
+          else
+            npm publish "$package" --access "$ACCESS" --tag "$tag"
+          fi
+          echo "::endgroup::"
+        done

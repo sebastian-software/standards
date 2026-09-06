@@ -1,5 +1,5 @@
 {
   "version": "0.2",
   "ignorePaths": [".standards/"],
-  "words": ["forgejo", "lockfile", "ndash", "oxfmt", "oxlint", "pnpm", "repometa"]
+  "words": ["forgejo", "libc", "lockfile", "napi", "ndash", "oxfmt", "oxlint", "pnpm", "repometa"]
 }

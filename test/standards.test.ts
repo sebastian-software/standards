@@ -430,7 +430,10 @@ describe("rust scope", () => {
   it("ships the CI and publish skeletons as reference files only", () => {
     const sources = rustScopeSources();
     expect(sources).not.toContain("reference/rust/ci.yml");
-    expect(sources).not.toContain("reference/rust/publish.yml");
+    // Publishing moved next to the release templates once it grew npm and
+    // native jobs; neither file is seeded.
+    expect(existsSync(join(standardsRoot(), "reference/rust/publish.yml"))).toBe(false);
+    expect(sources).not.toContain("reference/release-please/publish-skeleton.yml");
 
     const cwd = createRustFixtureRepo();
     runApply(cwd, YEAR);
@@ -438,13 +441,16 @@ describe("rust scope", () => {
     expect(existsSync(join(cwd, ".github/workflows/publish.yml"))).toBe(false);
   });
 
-  it.each(["ci.yml", "publish.yml"])("pins every action in %s", (file) => {
-    const workflow = readFileSync(join(standardsRoot(), "reference", "rust", file), "utf8");
+  it.each(["reference/rust/ci.yml", "reference/release-please/publish-skeleton.yml"])(
+    "pins every action in %s",
+    (file) => {
+      const workflow = readFileSync(join(standardsRoot(), file), "utf8");
 
-    const uses = workflowActionRefs(workflow);
-    expect(uses.length).toBeGreaterThan(0);
-    expect(uses.filter((reference) => !isPinnedActionRef(reference))).toStrictEqual([]);
-  });
+      const uses = workflowActionRefs(workflow);
+      expect(uses.length).toBeGreaterThan(0);
+      expect(uses.filter((reference) => !isPinnedActionRef(reference))).toStrictEqual([]);
+    },
+  );
 
   it("holds docker actions to a digest, not an image tag", () => {
     const sha = "0".repeat(40);
@@ -461,7 +467,10 @@ describe("rust scope", () => {
   });
 
   it("binds the manual publish path to a release tag", () => {
-    const workflow = readFileSync(join(standardsRoot(), "reference/rust/publish.yml"), "utf8");
+    const workflow = readFileSync(
+      join(standardsRoot(), "reference/release-please/publish-skeleton.yml"),
+      "utf8",
+    );
 
     const dispatch = workflow.slice(
       workflow.indexOf("  workflow_dispatch:"),
