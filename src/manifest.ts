@@ -7,6 +7,12 @@ export type FileMapping = {
   source: string;
   target: string;
   platform?: Platform;
+  /**
+   * Whether the entry also applies inside a workspace directory declared in
+   * `.repometa.json#workspaces`. Repository-level files (CI workflows,
+   * `renovate.json`) leave it unset; per-package configuration sets it.
+   */
+  workspace?: boolean;
 };
 
 export type SectionSpec = {

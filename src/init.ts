@@ -8,7 +8,7 @@ import { createInterface } from "node:readline/promises";
 
 import type { Platform, RepoMeta } from "./repo.js";
 
-import { isPlatform, REPO_META_FILE, writeRepoMeta } from "./repo.js";
+import { isPlatform, readRepoMeta, REPO_META_FILE, writeRepoMeta } from "./repo.js";
 
 export type Visibility = RepoMeta["visibility"];
 
@@ -247,6 +247,20 @@ function ensureGuard(cwd: string, force: boolean): void {
  * propagates to `process.stdin`, so the calling process cannot read from stdin
  * afterwards. Pass explicit `options.streams` to keep `process.stdin` open.
  */
+// `--force` re-runs init over an existing stamp, usually to add `platform`.
+// The fields init does not ask about are the repository's own decisions and
+// have to survive that.
+function carriedOver(cwd: string): Partial<RepoMeta> {
+  if (!existsSync(join(cwd, REPO_META_FILE))) {
+    return {};
+  }
+  const existing = readRepoMeta(cwd);
+  return {
+    ...(existing.exceptions === undefined ? {} : { exceptions: existing.exceptions }),
+    ...(existing.workspaces === undefined ? {} : { workspaces: existing.workspaces }),
+  };
+}
+
 export async function runInit(
   cwd: string,
   currentYear: number,
@@ -280,6 +294,7 @@ export async function runInit(
     visibility: resolved.visibility,
     since: resolved.since,
     platform: resolved.platform,
+    ...carriedOver(cwd),
   };
   writeRepoMeta(cwd, meta);
   return meta;

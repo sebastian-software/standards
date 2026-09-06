@@ -386,6 +386,133 @@ function workflowActionRefs(workflow: string): string[] {
   });
 }
 
+describe("nested node workspaces", () => {
+  const WORKSPACE_FILES = [
+    ".oxfmtrc.json",
+    "eslint.config.ts",
+    "oxlint.config.ts",
+    "tsconfig.json",
+    "cspell.json",
+  ];
+
+  function createWorkspaceRepo(workspaces: string[], directories = workspaces): string {
+    const cwd = createRustFixtureRepo();
+    for (const directory of directories) {
+      mkdirSync(join(cwd, directory), { recursive: true });
+      writeFileSync(join(cwd, directory, "package.json"), "{}\n");
+    }
+    writeFileSync(
+      join(cwd, ".repometa.json"),
+      `${JSON.stringify({ standards: 0, visibility: "oss", since: 2020, platform: "github", workspaces }, undefined, 2)}\n`,
+    );
+    return cwd;
+  }
+
+  it("writes the node scope into a declared workspace, not into the root", () => {
+    const cwd = createWorkspaceRepo(["node"]);
+
+    const paths = runApply(cwd, YEAR).map((change) => change.path);
+
+    for (const file of WORKSPACE_FILES) {
+      expect(paths).toContain(join("node", file));
+      expect(existsSync(join(cwd, "node", file))).toBe(true);
+      expect(existsSync(join(cwd, file))).toBe(false);
+    }
+    expect(runCheck(cwd, YEAR)).toStrictEqual([]);
+  });
+
+  it("keeps repository-level files out of the workspace", () => {
+    const cwd = createWorkspaceRepo(["node"]);
+
+    runApply(cwd, YEAR);
+
+    // renovate.json and the CI workflow belong to the repository, and the
+    // common scope is repository-wide — a workspace gets none of them.
+    for (const file of ["renovate.json", ".github/workflows/ci.yml", ...COMMUNITY_FILES]) {
+      expect(existsSync(join(cwd, "node", file))).toBe(false);
+    }
+    expect(existsSync(join(cwd, "SECURITY.md"))).toBe(true);
+    expect(readFileSync(join(cwd, "node", "package.json"), "utf8")).toBe("{}\n");
+  });
+
+  it("reports a workspace file with its full path", () => {
+    const cwd = createWorkspaceRepo(["node"]);
+    runApply(cwd, YEAR);
+    writeFileSync(join(cwd, "node", ".oxfmtrc.json"), "{}\n");
+
+    expect(runCheck(cwd, YEAR)).toStrictEqual([
+      {
+        kind: "managed",
+        path: join("node", ".oxfmtrc.json"),
+        detail: "managed file differs from reference",
+      },
+    ]);
+  });
+
+  it("handles several workspaces, including a nested path", () => {
+    const cwd = createWorkspaceRepo(["node", "crates/tool-node"]);
+
+    runApply(cwd, YEAR);
+
+    expect(existsSync(join(cwd, "node", ".oxfmtrc.json"))).toBe(true);
+    expect(existsSync(join(cwd, "crates/tool-node", ".oxfmtrc.json"))).toBe(true);
+  });
+
+  it("ignores a nested package.json that is not declared", () => {
+    // A vendored mirror or a generated sidecar carries a package.json too;
+    // only what the repository declares is managed.
+    const cwd = createWorkspaceRepo(["node"], ["node", "node/vendor/upstream"]);
+
+    runApply(cwd, YEAR);
+
+    expect(existsSync(join(cwd, "node/vendor/upstream", ".oxfmtrc.json"))).toBe(false);
+    expect(runCheck(cwd, YEAR)).toStrictEqual([]);
+  });
+
+  it("leaves a repository without workspaces exactly as it was", () => {
+    const cwd = createRustFixtureRepo();
+    mkdirSync(join(cwd, "node"));
+    writeFileSync(join(cwd, "node", "package.json"), "{}\n");
+
+    runApply(cwd, YEAR);
+
+    expect(existsSync(join(cwd, "node", ".oxfmtrc.json"))).toBe(false);
+    expect(existsSync(join(cwd, ".oxfmtrc.json"))).toBe(false);
+    expect(runCheck(cwd, YEAR)).toStrictEqual([]);
+  });
+
+  it("gives a workspace repository the node changelog entries", async () => {
+    const { buildPendingPayload: buildPayload } = await import("../src/sync.js");
+    const cwd = createWorkspaceRepo(["node"]);
+
+    const payload = buildPayload(cwd, 0);
+
+    expect(payload?.scopes).toStrictEqual(["common", "node", "rust"]);
+    // 0001 is the Prettier-to-oxfmt migration; a Rust repository with a Node
+    // workspace has to read it like any other Node package.
+    expect(payload?.changes.map((entry) => entry.version)).toContain(1);
+  });
+
+  it.each([["/absolute"], [".."], ["node/../.."], ["."], [""]])(
+    "rejects the workspace path %j",
+    (workspace) => {
+      const cwd = createWorkspaceRepo([workspace], []);
+
+      expect(() => runCheck(cwd, YEAR)).toThrow(/workspaces must be relative paths/u);
+    },
+  );
+
+  it("rejects a workspaces value that is not an array of strings", () => {
+    const cwd = createRustFixtureRepo();
+    writeFileSync(
+      join(cwd, ".repometa.json"),
+      `${JSON.stringify({ standards: 0, visibility: "oss", since: 2020, platform: "github", workspaces: "node" })}\n`,
+    );
+
+    expect(() => runCheck(cwd, YEAR)).toThrow(/workspaces must be an array of strings/u);
+  });
+});
+
 describe("rust scope", () => {
   it("detects a virtual workspace and seeds the toolchain files", () => {
     const cwd = createRustFixtureRepo();
@@ -597,13 +724,13 @@ describe("selectChanges and buildPrompt", () => {
     const root = getPackageRoot();
 
     expect(selectChanges(root, 0, ["common"]).map((entry) => entry.version)).toStrictEqual([
-      1, 2, 3, 7, 8, 9, 10, 11,
+      1, 2, 3, 7, 8, 9, 10, 11, 12,
     ]);
     expect(selectChanges(root, 1, ["common", "node"]).map((entry) => entry.version)).toStrictEqual([
-      2, 3, 4, 5, 6, 7, 8, 9, 10, 11,
+      2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12,
     ]);
     expect(selectChanges(root, 8, ["common", "node"]).map((entry) => entry.version)).toStrictEqual([
-      9, 10, 11,
+      9, 10, 11, 12,
     ]);
     // 0009 is the first entry a rust-only repository ever receives.
     expect(selectChanges(root, 0, ["rust"]).map((entry) => entry.version)).toStrictEqual([9, 11]);
@@ -1332,6 +1459,32 @@ describe("runInit", () => {
     );
     const meta = await runInit(cwd, YEAR, { interactive: false, force: true });
     expect(meta.standards).toBe(0);
+  });
+
+  it("keeps the fields it does not ask about when forcing", async () => {
+    // `init --force --platform github` is the documented migration for a legacy
+    // stamp; the repository's own declarations must survive it.
+    const cwd = createFreshDir();
+    writeFileSync(
+      join(cwd, ".repometa.json"),
+      `${JSON.stringify(
+        {
+          standards: 6,
+          visibility: "oss",
+          since: 2024,
+          exceptions: ["keeps-prettier"],
+          workspaces: ["node"],
+        },
+        undefined,
+        2,
+      )}\n`,
+    );
+
+    const meta = await runInit(cwd, YEAR, { interactive: false, force: true, platform: "github" });
+
+    expect(meta.exceptions).toStrictEqual(["keeps-prettier"]);
+    expect(meta.workspaces).toStrictEqual(["node"]);
+    expect(meta.platform).toBe("github");
   });
 });
 

@@ -1,3 +1,5 @@
+import { join } from "node:path";
+
 import type { ScopeSpec } from "./manifest.js";
 import type { SyncContext } from "./sync.js";
 
@@ -9,21 +11,20 @@ export type Finding = {
   detail: string;
 };
 
-function checkManaged(context: SyncContext, scope: ScopeSpec): Finding[] {
+function checkManaged(context: SyncContext, scope: ScopeSpec, dir: string): Finding[] {
   return scope.managed
     .filter((mapping) => matchesPlatform(mapping.platform, context.meta.platform))
     .flatMap((mapping) => {
-      const actual = readTarget(context, mapping.target);
+      const target = join(dir, mapping.target);
+      const actual = readTarget(context, target);
       if (actual === undefined) {
-        return [
-          { kind: "managed" as const, path: mapping.target, detail: "managed file is missing" },
-        ];
+        return [{ kind: "managed" as const, path: target, detail: "managed file is missing" }];
       }
       if (actual !== readReference(context, mapping.source)) {
         return [
           {
             kind: "managed" as const,
-            path: mapping.target,
+            path: target,
             detail: "managed file differs from reference",
           },
         ];
@@ -32,13 +33,13 @@ function checkManaged(context: SyncContext, scope: ScopeSpec): Finding[] {
     });
 }
 
-function checkSeeded(context: SyncContext, scope: ScopeSpec): Finding[] {
+function checkSeeded(context: SyncContext, scope: ScopeSpec, dir: string): Finding[] {
   return scope.seeded
     .filter((mapping) => matchesPlatform(mapping.platform, context.meta.platform))
-    .filter((mapping) => readTarget(context, mapping.target) === undefined)
+    .filter((mapping) => readTarget(context, join(dir, mapping.target)) === undefined)
     .map((mapping) => ({
       kind: "seeded" as const,
-      path: mapping.target,
+      path: join(dir, mapping.target),
       detail: "seeded file is missing",
     }));
 }
@@ -91,12 +92,14 @@ export function runCheck(cwd: string, currentYear: number): Finding[] {
     });
   }
 
-  for (const scope of context.scopes) {
-    findings.push(
-      ...checkManaged(context, scope),
-      ...checkSeeded(context, scope),
-      ...checkSections(context, scope),
-    );
+  for (const unit of context.units) {
+    for (const scope of unit.scopes) {
+      findings.push(
+        ...checkManaged(context, scope, unit.dir),
+        ...checkSeeded(context, scope, unit.dir),
+        ...checkSections(context, scope),
+      );
+    }
   }
 
   return findings;

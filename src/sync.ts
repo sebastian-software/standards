@@ -19,14 +19,82 @@ export function matchesPlatform(
   return entryPlatform === metaPlatform;
 }
 
+/**
+ * One place scope entries are written to: the repository root (`dir: ""`) or a
+ * workspace directory declared in `.repometa.json#workspaces`.
+ */
+export type ScopeUnit = {
+  dir: string;
+  scopes: ScopeSpec[];
+};
+
 export type SyncContext = {
   cwd: string;
   packageRoot: string;
   manifest: Manifest;
   meta: RepoMeta;
   scopes: ScopeSpec[];
+  units: ScopeUnit[];
   currentYear: number;
 };
+
+function scopesOf(manifest: Manifest, names: string[]): ScopeSpec[] {
+  return names.map((name) => manifest.scopes[name]).filter((scope) => scope !== undefined);
+}
+
+/**
+ * The part of a scope that applies inside a workspace directory: entries marked
+ * `workspace`, and no sections — a marker section belongs to the repository's
+ * README or AGENTS file, not to a package inside it.
+ */
+function workspaceScope(scope: ScopeSpec): ScopeSpec {
+  return {
+    detect: scope.detect,
+    managed: scope.managed.filter((entry) => entry.workspace === true),
+    seeded: scope.seeded.filter((entry) => entry.workspace === true),
+    sections: [],
+  };
+}
+
+function hasEntries(scope: ScopeSpec): boolean {
+  return scope.managed.length > 0 || scope.seeded.length > 0;
+}
+
+/**
+ * Scope names that apply anywhere in the repository, root and declared
+ * workspaces together, in manifest order. This is what selects the changelog
+ * entries a repository has to read: a Rust repository with a Node package in
+ * `node/` needs the node-scope entries even though its root has no
+ * `package.json`.
+ */
+export function detectScopeNames(cwd: string, manifest: Manifest, meta: RepoMeta): string[] {
+  const names = new Set(detectScopes(cwd, manifest));
+  for (const dir of meta.workspaces ?? []) {
+    for (const name of detectScopes(join(cwd, dir), manifest)) {
+      // `common` is repository-wide; a workspace never carries a second copy.
+      if (manifest.scopes[name]?.detect !== "always") {
+        names.add(name);
+      }
+    }
+  }
+  return Object.keys(manifest.scopes).filter((name) => names.has(name));
+}
+
+export function detectUnits(cwd: string, manifest: Manifest, meta: RepoMeta): ScopeUnit[] {
+  const root: ScopeUnit = { dir: "", scopes: scopesOf(manifest, detectScopes(cwd, manifest)) };
+  const nested = (meta.workspaces ?? []).map((dir) => ({
+    dir,
+    scopes: scopesOf(
+      manifest,
+      detectScopes(join(cwd, dir), manifest).filter(
+        (name) => manifest.scopes[name]?.detect !== "always",
+      ),
+    )
+      .map((scope) => workspaceScope(scope))
+      .filter((scope) => hasEntries(scope)),
+  }));
+  return [root, ...nested.filter((unit) => unit.scopes.length > 0)];
+}
 
 export function createContext(
   cwd: string,
@@ -36,10 +104,9 @@ export function createContext(
   const packageRoot = getPackageRoot();
   const manifest = loadManifest(packageRoot);
   const meta = preReadMeta ?? readRepoMeta(cwd);
-  const scopes = detectScopes(cwd, manifest)
-    .map((name) => manifest.scopes[name])
-    .filter((scope) => scope !== undefined);
-  return { cwd, packageRoot, manifest, meta, scopes, currentYear };
+  const units = detectUnits(cwd, manifest, meta);
+  const scopes = scopesOf(manifest, detectScopes(cwd, manifest));
+  return { cwd, packageRoot, manifest, meta, scopes, units, currentYear };
 }
 
 export function readReference(context: SyncContext, source: string): string {
@@ -178,7 +245,7 @@ export function buildPendingPayload(
   const packageRoot = getPackageRoot();
   const manifest = loadManifest(packageRoot);
   const meta = preReadMeta ?? readRepoMeta(cwd);
-  const scopeNames = detectScopes(cwd, manifest);
+  const scopeNames = detectScopeNames(cwd, manifest, meta);
   const changes = selectChanges(packageRoot, fromVersion, scopeNames);
   if (changes.length === 0) {
     return undefined;

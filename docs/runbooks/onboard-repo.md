@@ -113,6 +113,14 @@ itself (`dlx @sebastian-software/standards@<x.y.z>`) and a Renovate
 regex manager keeps it current — see
 [`reference/rust/README.md`](../../reference/rust/README.md).
 
+**Node workspace in a subdirectory?** A repo whose `package.json`
+lives in `node/` or `crates/<name>-node/` rather than at the root
+declares those directories in `.repometa.json#workspaces` (step 4);
+without that, scope detection finds no `package.json` at the root and
+the repo silently receives nothing from the `node` scope. Only
+per-package configuration lands there — see
+[`changes/0012-nested-node-workspaces.md`](../../changes/0012-nested-node-workspaces.md).
+
 ### 4. Initialise `.repometa.json`
 
 ```bash
@@ -143,7 +151,15 @@ interactively:
 - `--yes` — non-interactive mode; fails fast if a required value is
   neither flagged nor defaultable.
 - `--force` — overwrite an existing `.repometa.json` (e.g. when
-  adding `platform` to a legacy stamp).
+  adding `platform` to a legacy stamp). `exceptions` and `workspaces`
+  are carried over; everything else is written fresh.
+
+`workspaces` is not prompted for. Add it by hand where a Node
+workspace lives in a subdirectory:
+
+```json
+{ "standards": 0, "visibility": "oss", "since": 2026, "platform": "github", "workspaces": ["node"] }
+```
 
 The stamp lands at `.repometa.json#standards = 0`. The first
 `standards apply` (typically the Renovate drift PR in step 7) bumps
@@ -325,8 +341,10 @@ The repo is now in the standards rotation:
   topic.
 - **`standards apply` writes nothing.** Check `.repometa.json`
   exists and parses, and that the relevant scope detects (`node`
-  needs `package.json`, `rust` needs `Cargo.toml`). For
-  platform-scoped entries, also check `platform` is set; see
+  needs `package.json`, `rust` needs `Cargo.toml`) — in a repo whose
+  Node workspace is a subdirectory, that means `workspaces` has to
+  name it. For platform-scoped entries, also check `platform` is set;
+  see
   [`changes/0003-platform-aware-ci.md`](../../changes/0003-platform-aware-ci.md).
 - **`standards check` reports `platform is missing`.** Legacy stamp
   without `platform`. Run
