@@ -227,6 +227,27 @@ describe("common community files", () => {
     }
   });
 
+  it("offers a security route the issue chooser can render", () => {
+    const cwd = createFixtureRepo();
+
+    runApply(cwd, YEAR);
+
+    const chooser = readFileSync(join(cwd, ".github/ISSUE_TEMPLATE/config.yml"), "utf8");
+    const urls = chooser
+      .split("\n")
+      .map((line) => /^ *url: (?<url>\S+)$/u.exec(line)?.groups?.url)
+      .filter((url) => url !== undefined);
+
+    // GitHub drops a contact link whose URL is not http(s) — a `mailto:` entry
+    // would vanish from the chooser exactly where the advisory route is
+    // unavailable too, so the address lives in the `about` text instead.
+    expect(urls.length).toBeGreaterThanOrEqual(2);
+    for (const url of urls) {
+      expect(url).toMatch(/^https?:\/\//u);
+    }
+    expect(chooser).toContain("security@sebastian-software.de");
+  });
+
   it("keeps an existing community file untouched", () => {
     const cwd = createFixtureRepo();
     writeFileSync(join(cwd, "SECURITY.md"), "# Custom policy\n");
@@ -576,13 +597,13 @@ describe("selectChanges and buildPrompt", () => {
     const root = getPackageRoot();
 
     expect(selectChanges(root, 0, ["common"]).map((entry) => entry.version)).toStrictEqual([
-      1, 2, 3, 7, 8, 9,
+      1, 2, 3, 7, 8, 9, 10,
     ]);
     expect(selectChanges(root, 1, ["common", "node"]).map((entry) => entry.version)).toStrictEqual([
-      2, 3, 4, 5, 6, 7, 8, 9,
+      2, 3, 4, 5, 6, 7, 8, 9, 10,
     ]);
     expect(selectChanges(root, 8, ["common", "node"]).map((entry) => entry.version)).toStrictEqual([
-      9,
+      9, 10,
     ]);
     // 0009 is the first entry a rust-only repository ever receives.
     expect(selectChanges(root, 0, ["rust"]).map((entry) => entry.version)).toStrictEqual([9]);
