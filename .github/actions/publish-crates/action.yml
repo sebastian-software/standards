@@ -1,0 +1,149 @@
+name: Publish crates
+description: >-
+  Publish a workspace's crates to crates.io in dependency order, with one
+  index-propagation retry per crate and an already-published check that makes a
+  re-run idempotent. Authenticates through crates.io Trusted Publishing unless a
+  fallback token is supplied.
+
+inputs:
+  crates:
+    description: >-
+      Ordered crate list, leaves first — a crate must be on crates.io before a
+      crate that depends on it is published. Newline- or space-separated.
+    required: true
+  token:
+    description: >-
+      Fallback crates.io API token. Leave empty to use Trusted Publishing (the
+      job then needs `permissions: id-token: write`). Set it only for crates
+      whose Trusted Publishing is not configured yet — a first-ever publish
+      cannot use it, because the crate does not exist on crates.io.
+    required: false
+    default: ""
+  retry-delay:
+    description: Seconds to wait before the single retry of a failed publish.
+    required: false
+    default: "30"
+  index-timeout:
+    description: >-
+      Seconds to wait for a published version to appear in the sparse index
+      before publishing the next crate. Zero disables the wait.
+    required: false
+    default: "300"
+  working-directory:
+    description: Directory the cargo commands run in.
+    required: false
+    default: "."
+
+runs:
+  using: composite
+  steps:
+    # Trusted Publishing exchanges the job's OIDC identity for a short-lived
+    # registry token. It has to be enabled per crate on crates.io; until it is,
+    # the caller passes `token` and this step is skipped.
+    - name: Authenticate with crates.io
+      id: auth
+      if: ${{ inputs.token == '' }}
+      uses: rust-lang/crates-io-auth-action@c6f97d42243bad5fab37ca0427f495c86d5b1a18 # v1.0.5
+
+    - name: Publish crates in dependency order
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      env:
+        CARGO_REGISTRY_TOKEN: ${{ inputs.token != '' && inputs.token || steps.auth.outputs.token }}
+        CRATES: ${{ inputs.crates }}
+        RETRY_DELAY: ${{ inputs.retry-delay }}
+        INDEX_TIMEOUT: ${{ inputs.index-timeout }}
+      run: |
+        set -euo pipefail
+
+        if [ -z "${CARGO_REGISTRY_TOKEN:-}" ]; then
+          echo "::error::No crates.io credentials: Trusted Publishing produced no token and no fallback token was supplied."
+          exit 1
+        fi
+
+        crate_version() {
+          local package_id
+          package_id="$(cargo pkgid -p "$1")"
+          # cargo 1.77 and newer print `path+file://…/crate@1.2.3`; older
+          # versions print `…#1.2.3` or `…#crate:1.2.3`.
+          package_id="${package_id##*[#@]}"
+          echo "${package_id##*:}"
+        }
+
+        crate_index_path() {
+          # Sparse index layout: 1/name, 2/name, 3/{first char}/name,
+          # {first two}/{next two}/name for longer names — and the path is
+          # always the lowercased crate name, so a crate with capitals in its
+          # name is not looked up under a URL that cannot exist.
+          local crate
+          crate="$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]')"
+          case "${#crate}" in
+            1) echo "1/${crate}" ;;
+            2) echo "2/${crate}" ;;
+            3) echo "3/${crate:0:1}/${crate}" ;;
+            *) echo "${crate:0:2}/${crate:2:2}/${crate}" ;;
+          esac
+        }
+
+        # 0 = the version is on crates.io, 1 = it is not, 2 = the lookup itself
+        # failed. Guessing between the last two is what re-publishes a version
+        # that already exists, so the caller decides what a failed lookup means.
+        # `-f` is deliberately not used: it collapses every HTTP error into one
+        # exit code, and a 404 (crate never published) has to stay
+        # distinguishable from a 5xx (crates.io having a bad minute).
+        index_status() {
+          local crate="$1" version="$2" response body http_code
+          response="$(curl -sSL --retry 3 -w $'\n%{http_code}' "https://index.crates.io/$(crate_index_path "$crate")")" ||
+            return 2
+          http_code="${response##*$'\n'}"
+          body="${response%$'\n'*}"
+          case "$http_code" in
+            200) grep -qF "\"vers\":\"${version}\"" <<< "$body" && return 0 || return 1 ;;
+            404) return 1 ;;
+            *)
+              echo "::warning::crates.io index returned HTTP ${http_code} for ${crate}." >&2
+              return 2
+              ;;
+          esac
+        }
+
+        await_index() {
+          local crate="$1" version="$2" waited=0
+          while [ "$waited" -lt "$INDEX_TIMEOUT" ]; do
+            if index_status "$crate" "$version"; then
+              return 0
+            fi
+            sleep 10
+            waited=$((waited + 10))
+          done
+          echo "::warning::${crate} ${version} did not appear in the crates.io index within ${INDEX_TIMEOUT}s; continuing." >&2
+        }
+
+        for crate in $CRATES; do
+          version="$(crate_version "$crate")"
+
+          published=0
+          index_status "$crate" "$version" || published=$?
+          if [ "$published" -eq 2 ]; then
+            echo "::error::crates.io index lookup failed for ${crate}; refusing to guess whether ${version} is already published."
+            exit 1
+          fi
+          if [ "$published" -eq 0 ]; then
+            echo "Skipping ${crate} ${version}; it is already on crates.io."
+            continue
+          fi
+
+          if ! cargo publish -p "$crate" --locked; then
+            # The usual cause is the previous crate not having propagated to the
+            # index yet, so the dependency resolution for this one fails.
+            if index_status "$crate" "$version"; then
+              echo "Skipping ${crate} ${version}; it appeared on crates.io during the failed attempt."
+              continue
+            fi
+            echo "Retrying ${crate} ${version} in ${RETRY_DELAY}s."
+            sleep "$RETRY_DELAY"
+            cargo publish -p "$crate" --locked
+          fi
+
+          await_index "$crate" "$version"
+        done

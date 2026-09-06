@@ -188,6 +188,18 @@ These templates are packaged as references but are deliberately not managed or
 seeded by `standards apply`: choosing one shared product version instead of
 independent package releases is a repository-level compatibility decision.
 
+The workflow that runs them is
+[`reference/release-please/publish-skeleton.yml`](reference/release-please/publish-skeleton.yml),
+and the release steps every repository used to hand-write are shared composite
+actions in this repository — `publish-crates`, `publish-npm`, `napi-matrix` and
+`check-action-pins`, documented in
+[`.github/actions/README.md`](.github/actions/README.md). Consumers reference
+them by commit SHA:
+
+```yaml
+- uses: sebastian-software/standards/.github/actions/publish-crates@<sha> # v0.9.0
+```
+
 ## Development
 
 ```bash

@@ -1,0 +1,77 @@
+{
+  "$comment": "The org-wide platform list for @napi-rs/cli 3 sidecar packages. `id` is the napi platform triple used in every name; `runner` is the GitHub-hosted runner that builds it natively.",
+  "platforms": [
+    {
+      "id": "linux-x64-gnu",
+      "target": "x86_64-unknown-linux-gnu",
+      "runner": "ubuntu-latest",
+      "os": "linux",
+      "cpu": "x64",
+      "libc": "glibc",
+      "native": true
+    },
+    {
+      "id": "linux-arm64-gnu",
+      "target": "aarch64-unknown-linux-gnu",
+      "runner": "ubuntu-24.04-arm",
+      "os": "linux",
+      "cpu": "arm64",
+      "libc": "glibc",
+      "native": true
+    },
+    {
+      "id": "linux-x64-musl",
+      "target": "x86_64-unknown-linux-musl",
+      "runner": "ubuntu-latest",
+      "os": "linux",
+      "cpu": "x64",
+      "libc": "musl",
+      "native": false
+    },
+    {
+      "id": "linux-arm64-musl",
+      "target": "aarch64-unknown-linux-musl",
+      "runner": "ubuntu-latest",
+      "os": "linux",
+      "cpu": "arm64",
+      "libc": "musl",
+      "native": false
+    },
+    {
+      "id": "darwin-arm64",
+      "target": "aarch64-apple-darwin",
+      "runner": "macos-latest",
+      "os": "darwin",
+      "cpu": "arm64",
+      "libc": null,
+      "native": true
+    },
+    {
+      "id": "darwin-x64",
+      "target": "x86_64-apple-darwin",
+      "runner": "macos-15-intel",
+      "os": "darwin",
+      "cpu": "x64",
+      "libc": null,
+      "native": true
+    },
+    {
+      "id": "win32-x64-msvc",
+      "target": "x86_64-pc-windows-msvc",
+      "runner": "windows-latest",
+      "os": "win32",
+      "cpu": "x64",
+      "libc": null,
+      "native": true
+    },
+    {
+      "id": "win32-arm64-msvc",
+      "target": "aarch64-pc-windows-msvc",
+      "runner": "windows-11-arm",
+      "os": "win32",
+      "cpu": "arm64",
+      "libc": null,
+      "native": true
+    }
+  ]
+}
