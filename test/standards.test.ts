@@ -588,16 +588,16 @@ describe("selectChanges and buildPrompt", () => {
     const root = getPackageRoot();
 
     expect(selectChanges(root, 0, ["common"]).map((entry) => entry.version)).toStrictEqual([
-      1, 2, 3, 7, 8, 9, 10,
+      1, 2, 3, 7, 8, 9, 10, 11,
     ]);
     expect(selectChanges(root, 1, ["common", "node"]).map((entry) => entry.version)).toStrictEqual([
-      2, 3, 4, 5, 6, 7, 8, 9, 10,
+      2, 3, 4, 5, 6, 7, 8, 9, 10, 11,
     ]);
     expect(selectChanges(root, 8, ["common", "node"]).map((entry) => entry.version)).toStrictEqual([
-      9, 10,
+      9, 10, 11,
     ]);
     // 0009 is the first entry a rust-only repository ever receives.
-    expect(selectChanges(root, 0, ["rust"]).map((entry) => entry.version)).toStrictEqual([9]);
+    expect(selectChanges(root, 0, ["rust"]).map((entry) => entry.version)).toStrictEqual([9, 11]);
   });
 
   it("builds an agent prompt containing skill and changelog", async () => {

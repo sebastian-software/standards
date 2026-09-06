@@ -68,12 +68,24 @@ standards apply   # write managed files, seed missing ones, update branding, bum
 standards sync    # apply + run an agent (claude or codex) locally on the pending changelog entries
 ```
 
-All managed repositories invoke this package via
-`pnpm dlx @sebastian-software/standards`; no devDependency installation is
-required, regardless of stack. Every such invocation must carry
-`--config.minimum-release-age=0` — pnpm 11 defaults `minimumReleaseAge` to 24h,
-so without the bypass `dlx` resolves a version older than the one `apply` used
-to write the stamp, and `check` then reports false drift right after a release.
+The version a repository's CI executes is **pinned**, because `standards check`
+runs on every pull request with the job's token:
+
+- **Node-scope repositories** add `@sebastian-software/standards` as a
+  devDependency pinned to an exact version and run `pnpm exec standards check`.
+  The lockfile decides what runs; Renovate's `:standards` preset raises the pin
+  as a reviewable pull request, which is also where the drift it then reports is
+  applied.
+- **Rust-only repositories** have no lockfile to hold it, so their workflow
+  pins the version in the command itself:
+  `pnpm --config.minimum-release-age=0 dlx @sebastian-software/standards@<x.y.z> check`,
+  kept current by a Renovate regex manager
+  ([`reference/rust/README.md`](reference/rust/README.md)).
+
+`--config.minimum-release-age=0` belongs on a `dlx` invocation and on a manual
+`apply` run: pnpm 11 defaults `minimumReleaseAge` to 24h, so without the bypass
+a version released today cannot resolve at all. An install from a committed
+lockfile needs no bypass — the version is already resolved.
 
 ## Renovate-driven workflow
 

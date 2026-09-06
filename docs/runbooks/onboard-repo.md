@@ -96,7 +96,22 @@ cd <repo-clone>
 pnpm init
 ```
 
-Rust-only or documentation-only repos skip this step.
+Then add the CLI the repo's CI will run, pinned to an exact version:
+
+```bash
+pnpm add --save-dev --save-exact @sebastian-software/standards
+```
+
+The seeded CI runs `pnpm exec standards check`, so the lockfile
+decides what executes on every pull request instead of whatever npm
+published minutes earlier. Renovate's `:standards` preset raises the
+pin as a reviewable pull request.
+
+Rust-only or documentation-only repos skip this step: they have no
+lockfile to hold the version, so their CI pins it in the command
+itself (`dlx @sebastian-software/standards@<x.y.z>`) and a Renovate
+regex manager keeps it current — see
+[`reference/rust/README.md`](../../reference/rust/README.md).
 
 ### 4. Initialise `.repometa.json`
 
@@ -201,7 +216,10 @@ Renovate preset is active, the next worker run opens a drift PR
 titled `chore(standards): v<N>`. It contains:
 
 - The `.repometa.json` stamp bump from `0` to the current
-  `manifest.json#currentVersion`.
+  `manifest.json#currentVersion`, together with the raised CLI pin —
+  the devDependency for a Node repo, the version in the workflow for
+  a Rust-only one. Stamp and CLI move in the same pull request; a CLI
+  older than the stamp reports drift that does not exist.
 - All mechanical file writes from `standards apply` (managed +
   seeded + branding section).
 - `.standards/pending.json` describing the judgement steps for the
