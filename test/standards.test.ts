@@ -6,6 +6,7 @@ import {
   mkdtempSync,
   readdirSync,
   readFileSync,
+  symlinkSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -501,6 +502,69 @@ describe("nested node workspaces", () => {
       expect(() => runCheck(cwd, YEAR)).toThrow(/workspaces must be relative paths/u);
     },
   );
+
+  it("rejects a workspace that resolves outside the repository", () => {
+    // Path validation is lexical; a declared directory can still be a symlink
+    // pointing out of the checkout, and `apply` writes files into it.
+    const outside = mkdtempSync(join(tmpdir(), "standards-outside-"));
+    writeFileSync(join(outside, "package.json"), "{}\n");
+    const cwd = createWorkspaceRepo(["node"], []);
+    symlinkSync(outside, join(cwd, "node"), "dir");
+
+    expect(() => runCheck(cwd, YEAR)).toThrow(/outside the repository/u);
+    expect(() => runApply(cwd, YEAR)).toThrow(/outside the repository/u);
+    expect(existsSync(join(outside, ".oxfmtrc.json"))).toBe(false);
+  });
+
+  it("accepts a symlinked workspace that stays inside the repository", () => {
+    const cwd = createWorkspaceRepo(["link"], ["packages/tool"]);
+    symlinkSync(join(cwd, "packages/tool"), join(cwd, "link"), "dir");
+
+    runApply(cwd, YEAR);
+
+    expect(existsSync(join(cwd, "packages/tool", ".oxfmtrc.json"))).toBe(true);
+  });
+
+  it("ignores a scope that has nothing to contribute to a workspace", async () => {
+    // A Cargo.toml inside a declared Node workspace detects the rust scope
+    // there, but no rust entry applies in a workspace — so it must not write
+    // files and must not schedule rust changelog entries either.
+    const { buildPendingPayload: buildPayload } = await import("../src/sync.js");
+    const cwd = createWorkspaceRepo(["node"]);
+    writeFileSync(join(cwd, "node", "Cargo.toml"), "[package]\n");
+
+    runApply(cwd, YEAR);
+
+    expect(existsSync(join(cwd, "node", "rustfmt.toml"))).toBe(false);
+    expect(buildPayload(cwd, 8)?.changes.map((entry) => entry.version)).toStrictEqual([
+      9, 10, 11, 12,
+    ]);
+  });
+
+  it("rejects a duplicate workspace declaration", () => {
+    const cwd = createWorkspaceRepo(["node", "node"], ["node"]);
+
+    expect(() => runCheck(cwd, YEAR)).toThrow(/duplicate entries/u);
+  });
+
+  it("applies a repeated workspace once when the metadata bypasses validation", () => {
+    // `runApply` accepts pre-read metadata, so the invariant cannot rest on
+    // the file's validation alone.
+    const cwd = createWorkspaceRepo(["node"]);
+    const meta = {
+      standards: 0,
+      visibility: "oss",
+      since: 2020,
+      platform: "github",
+      workspaces: ["node", "node/", "node"],
+    } as const;
+
+    const paths = runApply(cwd, YEAR, { ...meta, workspaces: [...meta.workspaces] }).map(
+      (change) => change.path,
+    );
+
+    expect(paths.filter((path) => path === join("node", ".oxfmtrc.json"))).toHaveLength(1);
+  });
 
   it("rejects a workspaces value that is not an array of strings", () => {
     const cwd = createRustFixtureRepo();
@@ -1459,6 +1523,25 @@ describe("runInit", () => {
     );
     const meta = await runInit(cwd, YEAR, { interactive: false, force: true });
     expect(meta.standards).toBe(0);
+  });
+
+  it("resets a stamp it cannot read instead of refusing to force", async () => {
+    // `--force` is also the way out of a broken stamp, so an unreadable file
+    // is a warning, not a failure.
+    const cwd = createFreshDir();
+    writeFileSync(join(cwd, ".repometa.json"), "{ not json\n");
+    const { input, output, captured } = createCapturedStreams();
+
+    const meta = await runInit(cwd, YEAR, {
+      interactive: false,
+      force: true,
+      platform: "github",
+      streams: { input, output },
+    });
+
+    expect(meta.standards).toBe(0);
+    expect(meta.workspaces).toBeUndefined();
+    expect(captured.current).toContain("could not be read");
   });
 
   it("keeps the fields it does not ask about when forcing", async () => {

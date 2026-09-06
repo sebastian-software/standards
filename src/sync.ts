@@ -1,5 +1,12 @@
-import { existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
-import { dirname, isAbsolute, join } from "node:path";
+import {
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  realpathSync,
+  unlinkSync,
+  writeFileSync,
+} from "node:fs";
+import { dirname, isAbsolute, join, normalize, sep } from "node:path";
 
 import type { Manifest, ScopeSpec, SectionSpec } from "./manifest.js";
 import type { Platform, RepoMeta } from "./repo.js";
@@ -61,6 +68,52 @@ function hasEntries(scope: ScopeSpec): boolean {
 }
 
 /**
+ * Whether a scope can contribute anything to a workspace at all. A `Cargo.toml`
+ * inside a declared Node workspace detects the rust scope, but that scope has no
+ * workspace entries, so it must not reach the file writes or the changelog
+ * selection either.
+ */
+function appliesInWorkspace(manifest: Manifest, name: string): boolean {
+  const scope = manifest.scopes[name];
+  // `common` is repository-wide; a workspace never carries a second copy.
+  if (scope === undefined || scope.detect === "always") {
+    return false;
+  }
+  return hasEntries(workspaceScope(scope));
+}
+
+/**
+ * Declared workspace directories, deduplicated and confirmed to stay inside the
+ * repository. `.repometa.json` validation is lexical; a declared directory can
+ * still be a symlink pointing out of the checkout, and `apply` writes files into
+ * it — so the real path decides.
+ */
+export function workspaceDirs(cwd: string, meta: RepoMeta): string[] {
+  const root = realpathSync(cwd);
+  const seen = new Set<string>();
+  const dirs: string[] = [];
+
+  for (const declared of meta.workspaces ?? []) {
+    const dir = normalize(declared);
+    if (seen.has(dir)) {
+      continue;
+    }
+    seen.add(dir);
+
+    const target = join(cwd, dir);
+    const resolved = existsSync(target) ? realpathSync(target) : join(root, dir);
+    if (resolved !== root && !resolved.startsWith(root + sep)) {
+      throw new Error(
+        `Invalid workspace ${JSON.stringify(declared)}: it resolves to ${resolved}, outside the repository at ${root}.`,
+      );
+    }
+    dirs.push(dir);
+  }
+
+  return dirs;
+}
+
+/**
  * Scope names that apply anywhere in the repository, root and declared
  * workspaces together, in manifest order. This is what selects the changelog
  * entries a repository has to read: a Rust repository with a Node package in
@@ -69,10 +122,9 @@ function hasEntries(scope: ScopeSpec): boolean {
  */
 export function detectScopeNames(cwd: string, manifest: Manifest, meta: RepoMeta): string[] {
   const names = new Set(detectScopes(cwd, manifest));
-  for (const dir of meta.workspaces ?? []) {
+  for (const dir of workspaceDirs(cwd, meta)) {
     for (const name of detectScopes(join(cwd, dir), manifest)) {
-      // `common` is repository-wide; a workspace never carries a second copy.
-      if (manifest.scopes[name]?.detect !== "always") {
+      if (appliesInWorkspace(manifest, name)) {
         names.add(name);
       }
     }
@@ -82,16 +134,12 @@ export function detectScopeNames(cwd: string, manifest: Manifest, meta: RepoMeta
 
 export function detectUnits(cwd: string, manifest: Manifest, meta: RepoMeta): ScopeUnit[] {
   const root: ScopeUnit = { dir: "", scopes: scopesOf(manifest, detectScopes(cwd, manifest)) };
-  const nested = (meta.workspaces ?? []).map((dir) => ({
+  const nested = workspaceDirs(cwd, meta).map((dir) => ({
     dir,
     scopes: scopesOf(
       manifest,
-      detectScopes(join(cwd, dir), manifest).filter(
-        (name) => manifest.scopes[name]?.detect !== "always",
-      ),
-    )
-      .map((scope) => workspaceScope(scope))
-      .filter((scope) => hasEntries(scope)),
+      detectScopes(join(cwd, dir), manifest).filter((name) => appliesInWorkspace(manifest, name)),
+    ).map((scope) => workspaceScope(scope)),
   }));
   return [root, ...nested.filter((unit) => unit.scopes.length > 0)];
 }

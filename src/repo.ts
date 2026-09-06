@@ -72,6 +72,13 @@ function assertWorkspaces(value: unknown): asserts value is string[] | undefined
       `Invalid ${REPO_META_FILE}: workspaces must be relative paths inside the repository — got ${invalid.map((entry) => JSON.stringify(entry)).join(", ")}.`,
     );
   }
+  // A directory declared twice would be applied twice and reported twice.
+  const duplicates = value.filter((entry, index) => value.indexOf(entry) !== index);
+  if (duplicates.length > 0) {
+    throw new Error(
+      `Invalid ${REPO_META_FILE}: workspaces contains duplicate entries — ${[...new Set(duplicates)].map((entry) => JSON.stringify(entry)).join(", ")}.`,
+    );
+  }
 }
 
 export function readRepoMeta(cwd: string): RepoMeta {

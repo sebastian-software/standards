@@ -108,6 +108,12 @@ stamp — now preserves `workspaces` and `exceptions` instead of dropping them.
   the repository root by definition, and `rustfmt.toml`, `deny.toml` and
   `rust-toolchain.toml` belong there. A nested Cargo workspace (a `fuzz`
   directory, for example) is deliberately out of scope.
-- `workspaces` paths are validated: relative, forward slashes, no empty, `.` or
-  `..` segment. The value ends up in file paths, so it stays inside the
-  repository.
+- `workspaces` paths are validated twice, because the value ends up in file
+  paths that `apply` writes to. Lexically: relative, forward slashes, no empty,
+  `.` or `..` segment, and no duplicate entry. Then against the filesystem: the
+  real path of the directory has to stay inside the repository root, so a
+  declared directory that is a symlink out of the checkout is refused by name
+  rather than followed.
+- A scope that detects inside a workspace but has no `workspace` entries is
+  ignored there — a `Cargo.toml` in a declared Node workspace neither writes
+  Rust files into it nor schedules the Rust changelog entries.

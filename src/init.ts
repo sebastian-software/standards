@@ -249,12 +249,22 @@ function ensureGuard(cwd: string, force: boolean): void {
  */
 // `--force` re-runs init over an existing stamp, usually to add `platform`.
 // The fields init does not ask about are the repository's own decisions and
-// have to survive that.
-function carriedOver(cwd: string): Partial<RepoMeta> {
+// have to survive that — but `--force` also exists to recover from a broken
+// stamp, so an unreadable file is a warning, never a failure.
+function carriedOver(cwd: string, output: Writable): Partial<RepoMeta> {
   if (!existsSync(join(cwd, REPO_META_FILE))) {
     return {};
   }
-  const existing = readRepoMeta(cwd);
+  let existing;
+  try {
+    existing = readRepoMeta(cwd);
+  } catch (error) {
+    const reason = error instanceof Error ? error.message : String(error);
+    output.write(
+      `Warning: the existing ${REPO_META_FILE} could not be read (${reason}); writing a fresh one.\n`,
+    );
+    return {};
+  }
   return {
     ...(existing.exceptions === undefined ? {} : { exceptions: existing.exceptions }),
     ...(existing.workspaces === undefined ? {} : { workspaces: existing.workspaces }),
@@ -294,7 +304,7 @@ export async function runInit(
     visibility: resolved.visibility,
     since: resolved.since,
     platform: resolved.platform,
-    ...carriedOver(cwd),
+    ...carriedOver(cwd, streams.output),
   };
   writeRepoMeta(cwd, meta);
   return meta;
