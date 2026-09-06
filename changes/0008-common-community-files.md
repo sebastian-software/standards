@@ -33,6 +33,12 @@ spread over four different shapes:
 Every one of these is org-wide policy, not a per-repository decision, so they
 belong in the common scope.
 
+Separately, the standards-owned marker sections ended flush against their
+`:end` marker. oxfmt 0.66 and newer insert a blank line there when the section
+body ends in a list — which the Consumer AGENTS text does — so the formatter and
+`standards apply` overwrote each other on every run. Palamedes worked around it
+by putting `AGENTS.md` into `.prettierignore`.
+
 ## Mechanical steps (covered by `standards apply`)
 
 Ten new seeded entries in the `common` scope. Seeded means created once — a repo
@@ -64,6 +70,12 @@ repository opts in):
 `reference/common/labels.json` ships as reference data only. `standards apply`
 does not create or rename labels; see the judgement steps below.
 
+Both marker sections (`sebastian-software-branding` in `README.md`,
+`sebastian-software-consumer-agents` in `AGENTS.md`) are re-rendered with a
+blank line before the `:end` marker. `standards check` reports the old shape as
+an outdated section once; `standards apply` rewrites it. The new shape is stable
+under oxfmt 0.57 and 0.66 alike, so the formatter and `apply` stop fighting.
+
 ## Judgement steps (agent work, common scope)
 
 1. **Merge an existing `SECURITY.md`.** Keep the repository-specific scope
@@ -79,7 +91,12 @@ does not create or rename labels; see the judgement steps below.
    a custom text, keep the reference structure (Expected behavior / Unacceptable
    behavior / Scope and enforcement / Reporting) and fold repo-specific
    prohibitions into "Unacceptable behavior" instead of dropping them. Do not
-   swap a working custom text for a boilerplate copy of a different one.
+   swap a working custom text for a boilerplate copy of a different one. The
+   Reporting section must keep both routes: the maintainers for everyday
+   reports, and `security@sebastian-software.de` — a private inbox at Sebastian
+   Software GmbH — for reports that concern a maintainer. A code of conduct that
+   only says "report to the maintainers" leaves the case that matters most
+   without a route.
 3. **Merge an existing `SUPPORT.md`.** Keep repository-specific channels (for
    example a domain-specific report form) as extra sections; make sure the
    security section points at `SECURITY.md` and never invites a public issue.
@@ -108,8 +125,10 @@ does not create or rename labels; see the judgement steps below.
    same guidance, delete the duplicate instead of merging it twice.
 8. **Adopt `CODEOWNERS`.** The seed assigns everything to
    `@sebastian-software/maintainers`. Verify the team exists and has write
-   access; if the repository needs finer ownership, add specific paths _above_
-   the catch-all line rather than replacing it.
+   access; if the repository needs finer ownership, add the specific paths
+   _below_ the catch-all line rather than replacing it. GitHub applies the
+   **last** matching pattern, so a specific rule placed above `*` is silently
+   overridden by the catch-all.
 9. **Migrate labels.** Apply the taxonomy from
    `reference/common/labels.json` with `gh label` (see
    [README.md#label-taxonomy](../README.md#label-taxonomy)); rename rather than
@@ -118,6 +137,12 @@ does not create or rename labels; see the judgement steps below.
    onto the taxonomy. Values of the `area:` prefix stay repository-specific —
    pick them from the repository's actual subsystems. Use `Epic: …` as the title
    convention for issues labeled `epic`.
+
+10. **Drop the marker-section formatter workaround.** A repository that added
+    `AGENTS.md` (or `README.md`) to a repo-local `.prettierignore` only because
+    oxfmt and `standards apply` disagreed about the blank line before the `:end`
+    marker can remove that entry after this version — the rendered section is
+    now what oxfmt produces. Keep entries that exist for any other reason.
 
 ## Notes
 

@@ -219,4 +219,5 @@ The step-by-step procedure for adding a new repo to the standards system
 </p>
 
 <p align="center">Copyright &copy; 2026 Sebastian Software GmbH</p>
+
 <!-- sebastian-software-branding:end -->

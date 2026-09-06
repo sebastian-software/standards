@@ -57,8 +57,16 @@ describe("upsertSection", () => {
   it("appends a missing section with a separator", () => {
     const result = upsertSection("# Title\n", "m", "body");
     expect(result.action).toBe("appended");
-    expect(result.content).toContain("<!-- m:start -->\n\nbody\n<!-- m:end -->");
+    expect(result.content).toContain("<!-- m:start -->\n\nbody\n\n<!-- m:end -->");
     expect(result.content).toContain("\n---\n");
+  });
+
+  it("keeps a blank line before the end marker so oxfmt does not fight apply", () => {
+    const body = "- one\n- two";
+    const appended = upsertSection("# Title\n", "m", body);
+    expect(appended.content).toContain(`${body}\n\n<!-- m:end -->`);
+    // Re-running against the formatter-stable shape must be a no-op.
+    expect(upsertSection(appended.content, "m", body).action).toBe("unchanged");
   });
 
   it("replaces an outdated section in place", () => {
