@@ -149,7 +149,7 @@ the exact JSON shape.
 
 Merge the onboarding PR via the platform UI or `gh pr merge`.
 
-### 6. Set branch protection
+### 6. Set branch protection and private vulnerability reporting
 
 Without hard required status checks on `main`, the CI guard from the
 seeded `ci.yml` is soft — a maintainer (or misclick) could merge a
@@ -175,6 +175,18 @@ until the first Forgejo consumer repo opts in; once it does, mirror
 the GitHub setup above and record the exact payload in SKILL.md.
 See
 [SKILL.md#branch-protection-setup](../../SKILL.md#branch-protection-setup).
+
+Private vulnerability reporting is a **per-repository GitHub
+setting**, off by default, and no `standards` command can set it —
+the CLI writes files, not repository settings. Until it is on, the
+`security/advisories/new` link that the seeded issue chooser and
+`SECURITY.md` name simply 404s, which is why the seeds put the
+`security@sebastian-software.de` inbox first (see
+[`changes/0010-private-reporting-routes.md`](../../changes/0010-private-reporting-routes.md)).
+
+```bash
+gh api -X PUT repos/sebastian-software/<name>/private-vulnerability-reporting
+```
 
 A companion `scripts/onboard-repo.sh` (or an Ansible task in the
 proxmox repo) that wraps steps 2 + 6 in one shot is a follow-up

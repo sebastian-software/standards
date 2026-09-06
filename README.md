@@ -125,7 +125,9 @@ The `common` scope seeds the community baseline — `SECURITY.md`,
 GitHub `.github/CODEOWNERS`, the three issue forms with their `config.yml`, and
 `.github/pull_request_template.md`. Because they are seeded, a repository that
 already has its own text keeps it; the merge strategy lives in
-[changes/0008-common-community-files.md](changes/0008-common-community-files.md).
+[changes/0008-common-community-files.md](changes/0008-common-community-files.md),
+and the private reporting routes those files name in
+[changes/0010-private-reporting-routes.md](changes/0010-private-reporting-routes.md).
 
 The `rust` scope adds a managed `rustfmt.toml` plus seeded `rust-toolchain.toml`
 and `deny.toml`, and ships CI and publish workflow skeletons as reference files.
