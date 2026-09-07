@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.10.0](https://github.com/sebastian-software/standards/compare/standards-v0.9.0...standards-v0.10.0) (2026-09-07)
+
+
+### Features
+
+* **cli:** prove CLI and stamp alignment and mark unvalidated agent runs ([#76](https://github.com/sebastian-software/standards/issues/76)) ([56c1fad](https://github.com/sebastian-software/standards/commit/56c1fade07fb8f7fb12fc2b308e5c9f89ef4fe80))
+
+
+### Bug Fixes
+
+* **cli:** report the stale-CLI mismatch from apply and sync ([#79](https://github.com/sebastian-software/standards/issues/79)) ([af276c0](https://github.com/sebastian-software/standards/commit/af276c0f3c9c8bf80fcc433f74de4a86e7db64ef))
+* **release:** let release-please carry the pinned CLI in the Rust reference ([#80](https://github.com/sebastian-software/standards/issues/80)) ([3dadb81](https://github.com/sebastian-software/standards/commit/3dadb814c8097d86aa6529218e4b3fe86024c83a))
+
 ## [0.9.0](https://github.com/sebastian-software/standards/compare/standards-v0.8.0...standards-v0.9.0) (2026-09-06)
 
 

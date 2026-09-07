@@ -192,4 +192,4 @@ jobs:
       # release-please rewrites the pin below whenever it bumps package.json,
       # so the shipped reference never names a CLI older than its own stamp.
       # In a consumer repository the marker is inert and Renovate owns the pin.
-      - run: pnpm --config.minimum-release-age=0 dlx @sebastian-software/standards@0.9.0 check # x-release-please-version
+      - run: pnpm --config.minimum-release-age=0 dlx @sebastian-software/standards@0.10.0 check # x-release-please-version
