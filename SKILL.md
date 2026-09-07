@@ -51,10 +51,13 @@ for the full step-by-step procedure.
      this as a **blocking** finding and exits `3`. It is not repaired by
      `apply`; the fix is to raise the `@sebastian-software/standards` pin to the
      release whose manifest carries the stamped version and refresh the
-     lockfile. `apply` deliberately refuses to lower the stamp back to the stale
-     CLI's version, so the evidence survives — except when `--from-version` was
-     passed, which is the Renovate path where the stamp is legitimately raised
-     ahead of the CLI that runs.
+     lockfile. `apply` writes **nothing at all** in this direction — not the
+     managed files, not the seeds, not the sections, and not the stamp — because
+     a stale CLI carries the references of an earlier standards version and
+     writing them would downgrade the repository's content while the stamp still
+     claims the newer version. The evidence therefore survives untouched, except
+     when `--from-version` was passed, which is the Renovate path where the
+     stamp is legitimately raised ahead of the CLI that runs.
 
    Compatibility is never inferred from npm semver ordering. Prove it on two
    values: the installed `manifest.json#currentVersion` must equal
@@ -411,7 +414,7 @@ Open items the external side has to adopt, from standards version 13:
    including the `blocking` flag and the `retry` sentence.
 4. **Keep the `--from-version` flag on every automated `apply`.** It is what
    tells the CLI that a stamp raised ahead of it is legitimate; without it the
-   CLI refuses to lower the stamp and the migration pull request goes red with
-   no payload and therefore no agent trigger.
+   CLI applies nothing at all, so the migration pull request goes red with no
+   payload and therefore no agent trigger.
 5. **Treat `standards check` exit code `3` as unmergeable**, `1` as ordinary
    drift to be applied, and `2` as a usage error in the wiring itself.

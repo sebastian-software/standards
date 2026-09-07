@@ -1970,6 +1970,48 @@ describe("CLI and stamp alignment", () => {
     expect(stampFindingOf(cwd).blocking).toBe(true);
   });
 
+  it("writes no repository content at all when a stale CLI applies", () => {
+    // The stamp is not the only thing at stake: a stale CLI's references
+    // belong to an earlier standards version, so writing them would downgrade
+    // managed content and sections while the stamp still claims the newer
+    // version — a worse state than the misalignment being preserved.
+    const stamp = currentStandardsVersion() + 1;
+    const cwd = createStampedFixture(stamp);
+    const driftedManaged = "{}\n";
+    const driftedSection =
+      "<!-- sebastian-software-consumer-agents:start -->\nstale\n<!-- sebastian-software-consumer-agents:end -->\n";
+    writeFileSync(join(cwd, ".oxfmtrc.json"), driftedManaged);
+    writeFileSync(join(cwd, "AGENTS.md"), driftedSection);
+
+    const changes = runApply(cwd, YEAR);
+
+    expect(changes).toStrictEqual([]);
+    expect(readFileSync(join(cwd, ".oxfmtrc.json"), "utf8")).toBe(driftedManaged);
+    expect(readFileSync(join(cwd, "AGENTS.md"), "utf8")).toBe(driftedSection);
+    expect(readStamp(cwd)).toBe(stamp);
+  });
+
+  it("seeds nothing when a stale CLI applies to a fresh repository", () => {
+    const cwd = createFixtureRepo();
+    writeFileSync(
+      join(cwd, ".repometa.json"),
+      `${JSON.stringify(
+        {
+          standards: currentStandardsVersion() + 1,
+          visibility: "oss",
+          since: 2020,
+          platform: "github",
+        },
+        undefined,
+        2,
+      )}\n`,
+    );
+
+    expect(runApply(cwd, YEAR)).toStrictEqual([]);
+    expect(existsSync(join(cwd, "eslint.config.ts"))).toBe(false);
+    expect(existsSync(join(cwd, ".oxfmtrc.json"))).toBe(false);
+  });
+
   it("still self-heals the stamp when --from-version was supplied", () => {
     const current = currentStandardsVersion();
     const cwd = createStampedFixture(current + 1);

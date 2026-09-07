@@ -110,6 +110,20 @@ export type ApplyOptions = {
 
 export function runApply(cwd: string, currentYear: number, options?: ApplyOptions): Change[] {
   const context = createContext(cwd, currentYear, options?.preReadMeta);
+
+  // A CLI older than the repository's stamp is untrusted for the whole run, not
+  // just for the stamp: its references are the ones of an earlier standards
+  // version, so writing them would downgrade managed content while the stamp
+  // still claims the newer version — a worse state than the misalignment it was
+  // meant to preserve evidence of. Nothing is written at all; see
+  // `ApplyOptions.explicitFromVersion` for why `--from-version` is exempt.
+  if (
+    context.manifest.currentVersion < context.meta.standards &&
+    options?.explicitFromVersion !== true
+  ) {
+    return [];
+  }
+
   const changes: Change[] = [];
 
   for (const unit of context.units) {
@@ -125,17 +139,10 @@ export function runApply(cwd: string, currentYear: number, options?: ApplyOption
   const blockedByLegacyPlatform =
     context.meta.platform === undefined && hasPlatformScopedEntries(context.scopes);
 
-  // A CLI older than the repository's stamp must not rewrite that stamp down to
-  // its own manifest version; see `ApplyOptions.explicitFromVersion`.
-  const blockedByStaleCli =
-    context.manifest.currentVersion < context.meta.standards &&
-    options?.explicitFromVersion !== true;
-
-  if (
-    context.meta.standards !== context.manifest.currentVersion &&
-    !blockedByLegacyPlatform &&
-    !blockedByStaleCli
-  ) {
+  // A stale CLI never reaches this point, so the remaining mismatch is either a
+  // repository behind the CLI or the `--from-version` self-heal of the Renovate
+  // path, and both are rewritten to the running manifest version.
+  if (context.meta.standards !== context.manifest.currentVersion && !blockedByLegacyPlatform) {
     writeRepoMeta(cwd, { ...context.meta, standards: context.manifest.currentVersion });
     changes.push({ path: ".repometa.json", action: "bumped" });
   }
