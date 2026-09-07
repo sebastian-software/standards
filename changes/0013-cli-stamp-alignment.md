@@ -49,11 +49,15 @@ The CLI itself changes; three seeded or reference workflows change with it.
   clean and `2` stays reserved for usage errors. `standards check --json` writes
   one object, `{ findings: [{ kind, path, detail, blocking }], total, blocking }`,
   and no prose, for callers that need the classes rather than the text.
-- **`standards apply` no longer lowers the stamp** when the running CLI is older
-  than the repository — unless `--from-version` was passed. That flag is the
-  discriminator: Renovate always passes it and legitimately raises the stamp
-  before the `dlx` CLI runs, so self-healing has to survive on that path or the
-  migration pull request goes red with no payload and therefore no agent
+- **`standards apply` writes nothing at all** when the running CLI is older than
+  the repository — not the managed files, not the seeds, not the sections, and
+  not the stamp — unless `--from-version` was passed. A stale CLI carries the
+  references of an earlier standards version, and writing them would downgrade
+  the repository's content while the stamp still claims the newer version, a
+  worse state than the misalignment the guard preserves evidence of. That flag
+  is the discriminator: Renovate always passes it and legitimately raises the
+  stamp before the `dlx` CLI runs, so self-healing has to survive on that path
+  or the migration pull request goes red with no payload and therefore no agent
   trigger. A human or agent invoking a stale pinned CLI directly passes nothing
   and hits the guard.
 - **`reference/node/github-workflows-ci.yml`** and

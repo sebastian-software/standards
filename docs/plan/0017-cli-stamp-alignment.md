@@ -133,7 +133,8 @@ Further decisions taken during implementation:
   `--from-version` is present, so `apply` self-heals the stamp downwards exactly
   as before and the pull request stays green.
 - **Stale pinned CLI runs `apply` directly, without `--from-version`**: the guard
-  fires, the stamp is preserved, `check` exits 3, CI fails, the agent writes
+  fires and `apply` returns before writing anything — no managed files, no seeds,
+  no sections and no stamp — `check` exits 3, CI fails, the agent writes
   `blocked.json`.
 - **Bump with no judgement entries for the repository's scopes**:
   `selectChanges` is empty, `buildPendingPayload` returns `undefined` and
@@ -153,8 +154,9 @@ Further decisions taken during implementation:
 - **Repository without `.standards/`**: the agent creates the directory.
   `.standards/` is excluded from formatting and spell checking, and `apply` only
   ever unlinks the `--emit-pending` path, so it never manages the marker.
-- **Legacy platform block**: `blockedByLegacyPlatform` keeps precedence over the
-  new downgrade guard; both suppress the bump.
+- **Legacy platform block**: `blockedByLegacyPlatform` suppresses the bump. The
+  downgrade guard returns ahead of it, so a stale CLI writes nothing at all and
+  the legacy block is never reached on that path.
 
 ## Acceptance criteria
 
@@ -171,9 +173,9 @@ Further decisions taken during implementation:
 - [x] `standards check` exits `3` for a blocking finding, `1` for non-blocking
       only, `0` when clean; `2` stays reserved for usage errors; the usage text
       is updated.
-- [x] `runApply` leaves the stamp untouched when the CLI is behind the repository
-      and no `--from-version` was supplied; the self-healing path is unchanged;
-      `blockedByLegacyPlatform` keeps precedence.
+- [x] `runApply` returns before writing anything — managed files, seeds, sections
+      and stamp alike — when the CLI is behind the repository and no
+      `--from-version` was supplied; the self-healing path is unchanged.
 - [x] `buildPrompt` no longer claims the stamp is up to date, names the producing
       CLI version in `pending-file` mode, and omits the instruction in `inline`
       mode.
