@@ -3,6 +3,13 @@
   "release-type": "node",
   "bootstrap-sha": "dc474c942565bb36b48b2ebc1eb291750d12f803",
   "packages": {
-    ".": {}
+    ".": {
+      "extra-files": [
+        {
+          "type": "generic",
+          "path": "reference/rust/ci.yml"
+        }
+      ]
+    }
   }
 }

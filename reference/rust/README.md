@@ -135,6 +135,10 @@ the key is `fileMatch` with the same value. Raise the pin in the same pull
 request that runs `apply`, so the stamp and the CLI that checks it never
 disagree — a CLI older than the stamp reports drift that does not exist.
 
+The version in this reference `ci.yml` is not hand-edited: release-please
+bumps it in the standards repository alongside `package.json`, so every
+published copy names the CLI that matches the stamp it ships.
+
 A committed root `Cargo.lock` is a prerequisite of the standard, libraries
 included: every cargo command in `ci.yml` runs with `--locked`, so dependency
 drift fails the build instead of resolving silently. Every family repository
