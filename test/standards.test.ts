@@ -2027,7 +2027,7 @@ describe("CLI and stamp alignment", () => {
     const guarded = createStampedFixture(current + 1);
     const healed = createStampedFixture(current + 1);
 
-    expect(runCli(["apply", "--cwd", guarded]).status).toBe(0);
+    expect(runCli(["apply", "--cwd", guarded]).status).toBe(3);
     expect(readStamp(guarded)).toBe(current + 1);
 
     expect(runCli(["apply", "--cwd", healed, "--from-version", "0"]).status).toBe(0);
@@ -2050,6 +2050,82 @@ describe("CLI and stamp alignment", () => {
     expect(missing.blocking).toBe(false);
     // The legacy platform block still takes precedence over the stamp bump.
     expect(runApply(cwd, YEAR).find((change) => change.path === ".repometa.json")).toBeUndefined();
+  });
+});
+
+/**
+ * The guard that stops a stale CLI from writing made `apply` and `sync` silent
+ * rather than loud: both used to finish with exit `0` and a success line for a
+ * repository `standards check` refuses with exit `3`. They now speak `check`'s
+ * own directional message and carry its exit code.
+ */
+describe("stale CLI in apply and sync", () => {
+  const directional = "the installed CLI is behind the repository";
+
+  it("reports the blocking mismatch from sync and dispatches no agent", () => {
+    const cwd = createStampedFixture(currentStandardsVersion() + 1);
+
+    // `--dry-run` prints the agent prompt, so its absence proves no prompt was
+    // built — and therefore that no `claude`/`codex` process was ever a step away.
+    const result = runCli(["sync", "--cwd", cwd, "--dry-run"]);
+
+    expect(result.status).toBe(3);
+    expect(result.stdout).toContain(directional);
+    expect(result.stdout).toContain("Raise the `@sebastian-software/standards` pin");
+    expect(result.stdout).not.toContain("No changelog entries require agent work");
+    expect(result.stdout).not.toContain("Running ");
+    expect(result.stdout).not.toContain("Pre-flight");
+  });
+
+  it("reports the blocking mismatch from apply and writes nothing", () => {
+    const stamp = currentStandardsVersion() + 1;
+    const cwd = createStampedFixture(stamp);
+    const drifted = "{}\n";
+    writeFileSync(join(cwd, ".oxfmtrc.json"), drifted);
+
+    const result = runCli(["apply", "--cwd", cwd]);
+
+    expect(result.status).toBe(3);
+    expect(result.stdout).toContain(directional);
+    expect(result.stdout).not.toContain("Already up to date");
+    expect(result.stdout).not.toContain("Applied ");
+    expect(readFileSync(join(cwd, ".oxfmtrc.json"), "utf8")).toBe(drifted);
+    expect(readStamp(cwd)).toBe(stamp);
+  });
+
+  it("leaves apply --from-version alone, so Renovate keeps self-healing", () => {
+    const current = currentStandardsVersion();
+    const cwd = createStampedFixture(current + 1);
+
+    const result = runCli(["apply", "--cwd", cwd, "--from-version", String(current)]);
+
+    expect(result.status).toBe(0);
+    expect(result.stdout).not.toContain(directional);
+    expect(readStamp(cwd)).toBe(current);
+  });
+
+  it("keeps both commands green when the stamp matches the manifest", () => {
+    const cwd = createFixtureRepo();
+    runApply(cwd, YEAR);
+
+    const applied = runCli(["apply", "--cwd", cwd]);
+    expect(applied.status).toBe(0);
+    expect(applied.stdout).toContain("Already up to date");
+
+    const synced = runCli(["sync", "--cwd", cwd, "--dry-run"]);
+    expect(synced.status).toBe(0);
+    expect(synced.stdout).toContain("No changelog entries require agent work");
+  });
+
+  it("stays quiet for a repository behind its CLI, which apply still repairs", () => {
+    const current = currentStandardsVersion();
+    const cwd = createStampedFixture(current - 1);
+
+    const result = runCli(["apply", "--cwd", cwd]);
+
+    expect(result.status).toBe(0);
+    expect(result.stdout).not.toContain(directional);
+    expect(readStamp(cwd)).toBe(current);
   });
 });
 

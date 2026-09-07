@@ -59,6 +59,12 @@ for the full step-by-step procedure.
      when `--from-version` was passed, which is the Renovate path where the
      stamp is legitimately raised ahead of the CLI that runs.
 
+     `apply` and `sync` do not merely decline the work, they **report the same
+     blocking finding and exit `3`** — a command that cannot validate a
+     repository must not read as having completed it. `sync` stops before the
+     agent: no prompt is built and no `claude` or `codex` process is started.
+     `apply --from-version` is untouched by this and still exits `0`.
+
    Compatibility is never inferred from npm semver ordering. Prove it on two
    values: the installed `manifest.json#currentVersion` must equal
    `.repometa.json#standards`, and the pinned npm version must equal
@@ -419,7 +425,7 @@ Open items the external side has to adopt, from standards version 13:
    including the `blocking` flag and the `retry` sentence.
 4. **Keep the `--from-version` flag on every automated `apply`.** It is what
    tells the CLI that a stamp raised ahead of it is legitimate; without it the
-   CLI applies nothing at all, so the migration pull request goes red with no
-   payload and therefore no agent trigger.
+   CLI applies nothing at all and exits `3`, so the migration pull request goes
+   red with no payload and therefore no agent trigger.
 5. **Treat `standards check` exit code `3` as unmergeable**, `1` as ordinary
    drift to be applied, and `2` as a usage error in the wiring itself.

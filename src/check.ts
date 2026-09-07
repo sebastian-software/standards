@@ -98,8 +98,12 @@ function hasPlatformScopedEntries(scopes: ScopeSpec[]): boolean {
  * ordinary drift that `standards apply` and the changelog entries repair, while
  * a CLI behind its repository means the whole check ran against an outdated
  * manifest — the repository cannot be validated at all until the pin is raised.
+ *
+ * Exported because `apply` and `sync` report the very same mismatch when they
+ * refuse to touch a repository stamped ahead of them. One builder keeps the
+ * three commands from drifting into three different wordings for one defect.
  */
-function stampFinding(stamped: number, current: number): Finding | undefined {
+export function stampFinding(stamped: number, current: number): Finding | undefined {
   if (stamped === current) {
     return undefined;
   }

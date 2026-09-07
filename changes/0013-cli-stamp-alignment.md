@@ -60,6 +60,13 @@ The CLI itself changes; three seeded or reference workflows change with it.
   or the migration pull request goes red with no payload and therefore no agent
   trigger. A human or agent invoking a stale pinned CLI directly passes nothing
   and hits the guard.
+- **`standards apply` and `standards sync` report that mismatch and exit `3`**,
+  in the same words `check` uses for this direction. Writing nothing is only
+  half the guard: a command that reports success for a repository `check`
+  refuses is a silent failure, and `sync` would otherwise have gone on to
+  dispatch an agent against a repository the running CLI cannot validate. `sync`
+  therefore stops before building a prompt. `apply --from-version` keeps exiting
+  `0`, because that path is the legitimate one.
 - **`reference/node/github-workflows-ci.yml`** and
   **`reference/node/forgejo-workflows-ci.yml`** gain, immediately before the
   `standards check` step, a `node -p` guard that resolves
