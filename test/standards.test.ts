@@ -720,6 +720,31 @@ describe("rust scope", () => {
     // `rust-toolchain.toml` outranks the default toolchain; the lane must override it.
     expect(ci).toContain("rustup override set");
   });
+
+  it("lets release-please carry the pinned CLI in the reference drift lane", () => {
+    const lines = readFileSync(join(standardsRoot(), "reference/rust/ci.yml"), "utf8").split("\n");
+    const pinned = lines.filter((line) => line.includes("dlx @sebastian-software/standards@"));
+
+    expect(pinned).toHaveLength(1);
+    // The generic updater rewrites every annotated line, so a second one — a
+    // comment explaining the pin, say — is a rewrite target nobody intended.
+    expect(lines.filter((line) => line.includes("x-release-please-version"))).toHaveLength(1);
+    // A published tarball must never tell a Rust repository to run a CLI older
+    // than the `manifest.json#currentVersion` that same tarball ships, and the
+    // stale-CLI mismatch is a blocking finding. release-please bumps the pin in
+    // the very pull request that bumps `package.json`, so the two stay equal.
+    expect(pinned[0]).toContain(`@sebastian-software/standards@${readOwnPackageVersion()} `);
+    // Nothing else keeps them in step: without the annotation and the
+    // `extra-files` entry the literal freezes at whatever was released last.
+    expect(pinned[0]).toContain("x-release-please-version");
+
+    expect(readReleasePleaseExtraFiles()).toContainEqual({
+      // `.yml` would otherwise pick the YAML updater, which needs a jsonpath;
+      // the annotation is only read by the generic updater.
+      type: "generic",
+      path: "reference/rust/ci.yml",
+    });
+  });
 });
 
 describe("label taxonomy", () => {
@@ -1074,6 +1099,23 @@ function readOwnPackageVersion(): string {
     throw new TypeError("package.json: version is not a non-empty string");
   }
   return version;
+}
+
+/**
+ * The `extra-files` release-please rewrites for the root package. Narrowing
+ * lives here so the test that reads it stays free of conditionals.
+ */
+function readReleasePleaseExtraFiles(): unknown[] {
+  const raw: unknown = JSON.parse(
+    readFileSync(join(standardsRoot(), "release-please-config.json"), "utf8"),
+  );
+  const packages = isRecord(raw) ? raw.packages : undefined;
+  const rootPackage = isRecord(packages) ? packages["."] : undefined;
+  const extraFiles = isRecord(rootPackage) ? rootPackage["extra-files"] : undefined;
+  if (!Array.isArray(extraFiles)) {
+    throw new TypeError('release-please-config.json: packages["."].extra-files is not an array');
+  }
+  return extraFiles;
 }
 
 describe("buildPendingPayload", () => {
