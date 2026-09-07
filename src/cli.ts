@@ -1,4 +1,5 @@
 import type { AgentName } from "./agent.js";
+import type { Finding } from "./check.js";
 import type { InitOptions, Visibility } from "./init.js";
 import type { Platform } from "./repo.js";
 
@@ -22,7 +23,10 @@ const USAGE = `Usage: standards <command> [--cwd <dir>]
 Commands:
   init    Create .repometa.json interactively (or via flags for CI)
           [--visibility oss|private] [--since <int>] [--platform github|forgejo] [--yes] [--force]
-  check   Report drift between this repository and the org standards (exit 1 on drift)
+  check   Report drift between this repository and the org standards
+          [--json: write one JSON object to stdout instead of prose]
+          Exit codes: 0 clean, 1 non-blocking findings, 3 at least one blocking
+          finding (the installed CLI is older than the repository's stamp)
   apply   Write managed files, seed missing ones, update branding sections, bump the stamp
           [--from-version <int>: explicit baseline for pending-marker selection]
           [--emit-pending <path>: write a JSON marker describing pending judgement work]
@@ -175,7 +179,10 @@ function applyCommand(cwd: string, currentYear: number, args: string[]): void {
   const meta = readRepoMeta(cwd);
   const effectiveFromVersion = explicitFromVersion ?? meta.standards;
 
-  const changes = runApply(cwd, currentYear, meta);
+  const changes = runApply(cwd, currentYear, {
+    preReadMeta: meta,
+    explicitFromVersion: explicitFromVersion !== undefined,
+  });
 
   if (emitPending !== undefined) {
     const payload = buildPendingPayload(cwd, effectiveFromVersion, meta);
@@ -190,17 +197,64 @@ function applyCommand(cwd: string, currentYear: number, args: string[]): void {
   out(`Applied ${String(changes.length)} change(s). Run your checks and commit.`);
 }
 
-function checkCommand(cwd: string, currentYear: number): void {
-  const findings = runCheck(cwd, currentYear);
+/**
+ * Exit codes are the only signal the seeded CI can read: it calls
+ * `standards check` without `--json`, so `3` (blocking) has to be
+ * distinguishable from `1` (ordinary drift) without a parser. `2` stays
+ * reserved for usage errors.
+ */
+function checkExitCode(total: number, blocking: number): number {
+  if (blocking > 0) return 3;
+  return total > 0 ? 1 : 0;
+}
+
+function reportFindingsJson(findings: Finding[], blocking: number): void {
+  out(
+    JSON.stringify({
+      findings: findings.map((finding) => ({
+        kind: finding.kind,
+        path: finding.path,
+        detail: finding.detail,
+        blocking: finding.blocking,
+      })),
+      total: findings.length,
+      blocking,
+    }),
+  );
+}
+
+function reportFindingsText(findings: Finding[], blocking: number): void {
   if (findings.length === 0) {
     out("✓ Repository matches org standards.");
     return;
   }
   for (const finding of findings) {
-    out(`[${finding.kind}] ${finding.path}: ${finding.detail}`);
+    out(
+      `[${finding.kind}]${finding.blocking ? "[blocking]" : ""} ${finding.path}: ${finding.detail}`,
+    );
   }
-  out(`${String(findings.length)} finding(s). Run \`standards apply\` for the mechanical part.`);
-  process.exitCode = 1;
+  const suffix = blocking > 0 ? `, ${String(blocking)} blocking` : "";
+  out(
+    `${String(findings.length)} finding(s)${suffix}. Run \`standards apply\` for the mechanical part.`,
+  );
+}
+
+function checkCommand(cwd: string, currentYear: number, args: string[]): void {
+  const findings = runCheck(cwd, currentYear);
+  const blocking = findings.filter((finding) => finding.blocking).length;
+
+  // `--json` is the agent's interface and emits nothing but the object, the
+  // zero-findings case included; the `✓` line belongs to the prose mode only.
+  if (hasFlag(args, "--json")) {
+    reportFindingsJson(findings, blocking);
+  } else {
+    reportFindingsText(findings, blocking);
+  }
+
+  const code = checkExitCode(findings.length, blocking);
+  if (code !== 0) {
+    process.exitCode = code;
+  }
 }
 
 function syncCommand(cwd: string, currentYear: number, args: string[]): void {
@@ -210,7 +264,7 @@ function syncCommand(cwd: string, currentYear: number, args: string[]): void {
   const meta = readRepoMeta(cwd);
   const fromVersion = meta.standards;
 
-  reportApplied(runApply(cwd, currentYear, meta));
+  reportApplied(runApply(cwd, currentYear, { preReadMeta: meta }));
 
   const scopeNames = detectScopes(cwd, manifest);
   const entries = selectChanges(packageRoot, fromVersion, scopeNames);
@@ -262,7 +316,7 @@ async function main(): Promise<void> {
       break;
     }
     case "check": {
-      checkCommand(cwd, currentYear);
+      checkCommand(cwd, currentYear, rest);
       break;
     }
     case "sync": {

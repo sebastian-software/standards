@@ -14,7 +14,10 @@ import { join, relative } from "node:path";
 import { PassThrough, Writable } from "node:stream";
 import { describe, expect, it } from "vitest";
 
+import type { Finding } from "../src/check.js";
+
 import { runApply } from "../src/apply.js";
+import { assertBlockedState } from "../src/blocked.js";
 import { copyrightYears, renderTemplate, upsertSection } from "../src/branding.js";
 import { runCheck } from "../src/check.js";
 import { initCommand } from "../src/cli.js";
@@ -446,6 +449,7 @@ describe("nested node workspaces", () => {
         kind: "managed",
         path: join("node", ".oxfmtrc.json"),
         detail: "managed file differs from reference",
+        blocking: false,
       },
     ]);
   });
@@ -537,7 +541,7 @@ describe("nested node workspaces", () => {
 
     expect(existsSync(join(cwd, "node", "rustfmt.toml"))).toBe(false);
     expect(buildPayload(cwd, 8)?.changes.map((entry) => entry.version)).toStrictEqual([
-      9, 10, 11, 12,
+      9, 10, 11, 12, 13,
     ]);
   });
 
@@ -559,9 +563,9 @@ describe("nested node workspaces", () => {
       workspaces: ["node", "node/", "node"],
     } as const;
 
-    const paths = runApply(cwd, YEAR, { ...meta, workspaces: [...meta.workspaces] }).map(
-      (change) => change.path,
-    );
+    const paths = runApply(cwd, YEAR, {
+      preReadMeta: { ...meta, workspaces: [...meta.workspaces] },
+    }).map((change) => change.path);
 
     expect(paths.filter((path) => path === join("node", ".oxfmtrc.json"))).toHaveLength(1);
   });
@@ -787,17 +791,20 @@ describe("selectChanges and buildPrompt", () => {
     const { getPackageRoot } = await import("../src/manifest.js");
     const root = getPackageRoot();
 
+    // 0013 is node+rust, so a common-only repository does not receive it.
     expect(selectChanges(root, 0, ["common"]).map((entry) => entry.version)).toStrictEqual([
       1, 2, 3, 7, 8, 9, 10, 11, 12,
     ]);
     expect(selectChanges(root, 1, ["common", "node"]).map((entry) => entry.version)).toStrictEqual([
-      2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12,
+      2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13,
     ]);
     expect(selectChanges(root, 8, ["common", "node"]).map((entry) => entry.version)).toStrictEqual([
-      9, 10, 11, 12,
+      9, 10, 11, 12, 13,
     ]);
     // 0009 is the first entry a rust-only repository ever receives.
-    expect(selectChanges(root, 0, ["rust"]).map((entry) => entry.version)).toStrictEqual([9, 11]);
+    expect(selectChanges(root, 0, ["rust"]).map((entry) => entry.version)).toStrictEqual([
+      9, 11, 13,
+    ]);
   });
 
   it("builds an agent prompt containing skill and changelog", async () => {
@@ -886,6 +893,83 @@ describe("selectChanges and buildPrompt", () => {
     for (const entry of changes) {
       expect(entry.content.trim().length).toBeGreaterThan(0);
       expect(prompt).not.toContain(entry.content.trim());
+    }
+  });
+
+  it("requires the pin alignment as the first step of a pending-file run", async () => {
+    const { buildPrompt } = await import("../src/agent.js");
+    const { selectChanges } = await import("../src/changes.js");
+    const { getPackageRoot } = await import("../src/manifest.js");
+    const root = getPackageRoot();
+
+    const prompt = buildPrompt({
+      packageRoot: root,
+      meta: { standards: 1, visibility: "oss", since: 2020 },
+      scopeNames: ["common", "node"],
+      fromVersion: 0,
+      toVersion: 13,
+      cliVersion: "9.9.9",
+      changes: selectChanges(root, 0, ["common", "node"]),
+      changesSource: "pending-file",
+    });
+
+    expect(prompt).toContain("Pre-flight: align the CLI with the version stamp");
+    expect(prompt).toContain("9.9.9");
+    expect(prompt).toContain("never infer compatibility from npm");
+    expect(prompt).toContain("exits 3");
+    // The pre-flight runs before the judgement steps it validates.
+    expect(prompt.indexOf("Pre-flight: align the CLI")).toBeLessThan(
+      prompt.indexOf("## Changelog entries to execute"),
+    );
+    // The old, false claim that apply always leaves the stamp correct is gone.
+    expect(prompt).not.toContain("branding section and the version stamp are up to date");
+  });
+
+  it("omits the pin instruction for an inline run, whose CLI may be the stale one", async () => {
+    const { buildPrompt } = await import("../src/agent.js");
+    const { selectChanges } = await import("../src/changes.js");
+    const { getPackageRoot } = await import("../src/manifest.js");
+    const root = getPackageRoot();
+
+    const prompt = buildPrompt({
+      packageRoot: root,
+      meta: { standards: 1, visibility: "oss", since: 2020 },
+      scopeNames: ["common", "node"],
+      fromVersion: 0,
+      toVersion: 13,
+      cliVersion: "9.9.9",
+      changes: selectChanges(root, 0, ["common", "node"]),
+    });
+
+    expect(prompt).not.toContain("Pre-flight: align the CLI");
+    expect(prompt).not.toContain("9.9.9");
+  });
+
+  it("instructs the agent to write and clear the blocked marker in both modes", async () => {
+    const { buildPrompt } = await import("../src/agent.js");
+    const { selectChanges } = await import("../src/changes.js");
+    const { getPackageRoot } = await import("../src/manifest.js");
+    const root = getPackageRoot();
+
+    for (const changesSource of ["inline", "pending-file"] as const) {
+      const prompt = buildPrompt({
+        packageRoot: root,
+        meta: { standards: 1, visibility: "oss", since: 2020 },
+        scopeNames: ["common", "node"],
+        fromVersion: 0,
+        toVersion: 13,
+        changes: selectChanges(root, 0, ["common", "node"]),
+        changesSource,
+      });
+
+      // Unique to the Validation block, so the SKILL text embedded above
+      // cannot satisfy the assertion on its own.
+      expect(prompt).toContain("Publication is not validated completion");
+      expect(prompt).toContain("still failing or incomplete after your best-effort");
+      expect(prompt).toContain("delete `.standards/blocked.json` when");
+      expect(prompt).toContain("Writing the marker never replaces pushing");
+      // The always-push rule from #37 stays verbatim.
+      expect(prompt).toContain("never withhold or revert your commits");
     }
   });
 
@@ -983,6 +1067,15 @@ function withinContract(path: string): boolean {
   );
 }
 
+function readOwnPackageVersion(): string {
+  const raw: unknown = JSON.parse(readFileSync(join(standardsRoot(), "package.json"), "utf8"));
+  const version = isRecord(raw) ? raw.version : undefined;
+  if (typeof version !== "string" || version === "") {
+    throw new TypeError("package.json: version is not a non-empty string");
+  }
+  return version;
+}
+
 describe("buildPendingPayload", () => {
   it("emits a schema-versioned payload when changes are pending", () => {
     const cwd = createFixtureRepo();
@@ -1006,6 +1099,17 @@ describe("buildPendingPayload", () => {
       expect(entry.content.trim().length).toBeGreaterThan(0);
       expect(payload.prompt).not.toContain(entry.content.trim());
     }
+  });
+
+  it("records the npm version of the CLI that produced the payload", () => {
+    const cwd = createFixtureRepo();
+
+    const payload = unwrap(buildPendingPayload(cwd, 0));
+
+    // Additive: the schema version does not move, so a payload already in
+    // flight when this field appeared stays readable.
+    expect(payload.schemaVersion).toBe(1);
+    expect(payload.cliVersion).toBe(readOwnPackageVersion());
   });
 
   it("returns undefined when the stamp matches the manifest", () => {
@@ -1059,6 +1163,21 @@ describe("assertPendingPayload", () => {
     expect(() => {
       assertPendingPayload(empty);
     }).not.toThrow();
+  });
+
+  it("accepts a payload written before cliVersion existed", () => {
+    // `cliVersion` was added without a schema bump, so an in-flight payload
+    // that predates it must not be rejected.
+    expect(() => {
+      assertPendingPayload(validPayload);
+    }).not.toThrow();
+  });
+
+  it("rejects a payload whose cliVersion is not a string", () => {
+    const bad = { ...validPayload, cliVersion: 10 };
+    expect(() => {
+      assertPendingPayload(bad);
+    }).toThrow(/cliVersion/);
   });
 
   it("rejects a payload with the wrong schemaVersion", () => {
@@ -1148,7 +1267,7 @@ describe("preReadMeta threading", () => {
     };
 
     const changesDefault = runApply(cwdA, YEAR);
-    const changesParameterized = runApply(cwdB, YEAR, meta);
+    const changesParameterized = runApply(cwdB, YEAR, { preReadMeta: meta });
 
     expect(
       changesParameterized.map((change) => change.path).sort((a, b) => a.localeCompare(b)),
@@ -1774,5 +1893,459 @@ describe("standards init CLI guard", () => {
 
     expect(result.status).not.toBe(0);
     expect(result.stderr).toMatch(/No TTY/);
+  });
+});
+
+function currentStandardsVersion(): number {
+  return loadManifest(standardsRoot()).currentVersion;
+}
+
+/**
+ * A fixture that is fully applied and then re-stamped, so the only difference
+ * from a clean repository is the version stamp itself.
+ */
+function createStampedFixture(stamp: number): string {
+  const cwd = createFixtureRepo();
+  runApply(cwd, YEAR);
+  const raw: unknown = JSON.parse(readFileSync(join(cwd, ".repometa.json"), "utf8"));
+  const meta = isRecord(raw) ? raw : {};
+  writeFileSync(
+    join(cwd, ".repometa.json"),
+    `${JSON.stringify({ ...meta, standards: stamp }, undefined, 2)}\n`,
+  );
+  return cwd;
+}
+
+function runCli(args: string[]): { status: null | number; stdout: string; stderr: string } {
+  const cliPath = join(standardsRoot(), "dist", "cli.js");
+  const result = spawnSync(process.execPath, [cliPath, ...args], { encoding: "utf8" });
+  return { status: result.status, stdout: result.stdout, stderr: result.stderr };
+}
+
+function stampFindingOf(cwd: string): Finding {
+  return unwrap(runCheck(cwd, YEAR).find((finding) => finding.kind === "stamp"));
+}
+
+describe("CLI and stamp alignment", () => {
+  it("reports a repository behind the installed CLI as non-blocking drift", () => {
+    const cwd = createStampedFixture(currentStandardsVersion() - 1);
+
+    const finding = stampFindingOf(cwd);
+    expect(finding.blocking).toBe(false);
+    expect(finding.detail).toContain("the repository is behind the installed CLI");
+    expect(finding.detail).toContain("see changes/ for migration steps");
+    expect(runCli(["check", "--cwd", cwd]).status).toBe(1);
+  });
+
+  it("bumps the stamp of a repository behind the installed CLI", () => {
+    const current = currentStandardsVersion();
+    const cwd = createStampedFixture(current - 1);
+
+    const changes = runApply(cwd, YEAR);
+
+    expect(changes.find((change) => change.action === "bumped")).toBeDefined();
+    expect(readStamp(cwd)).toBe(current);
+  });
+
+  it("reports an installed CLI behind the repository as blocking, and names the fix", () => {
+    const cwd = createStampedFixture(currentStandardsVersion() + 1);
+
+    const finding = stampFindingOf(cwd);
+    expect(finding.blocking).toBe(true);
+    expect(finding.detail).toContain("the installed CLI is behind the repository");
+    expect(finding.detail).toContain("Raise the `@sebastian-software/standards` pin");
+    expect(finding.detail).toContain("refresh the lockfile");
+    expect(runCli(["check", "--cwd", cwd]).status).toBe(3);
+  });
+
+  it("keeps the stamp when a stale CLI applies without --from-version", () => {
+    const stamp = currentStandardsVersion() + 1;
+    const cwd = createStampedFixture(stamp);
+
+    const changes = runApply(cwd, YEAR);
+
+    expect(changes.find((change) => change.path === ".repometa.json")).toBeUndefined();
+    expect(readStamp(cwd)).toBe(stamp);
+    // The evidence survives, so the next `check` still reports the mismatch.
+    expect(stampFindingOf(cwd).blocking).toBe(true);
+  });
+
+  it("writes no repository content at all when a stale CLI applies", () => {
+    // The stamp is not the only thing at stake: a stale CLI's references
+    // belong to an earlier standards version, so writing them would downgrade
+    // managed content and sections while the stamp still claims the newer
+    // version — a worse state than the misalignment being preserved.
+    const stamp = currentStandardsVersion() + 1;
+    const cwd = createStampedFixture(stamp);
+    const driftedManaged = "{}\n";
+    const driftedSection =
+      "<!-- sebastian-software-consumer-agents:start -->\nstale\n<!-- sebastian-software-consumer-agents:end -->\n";
+    writeFileSync(join(cwd, ".oxfmtrc.json"), driftedManaged);
+    writeFileSync(join(cwd, "AGENTS.md"), driftedSection);
+
+    const changes = runApply(cwd, YEAR);
+
+    expect(changes).toStrictEqual([]);
+    expect(readFileSync(join(cwd, ".oxfmtrc.json"), "utf8")).toBe(driftedManaged);
+    expect(readFileSync(join(cwd, "AGENTS.md"), "utf8")).toBe(driftedSection);
+    expect(readStamp(cwd)).toBe(stamp);
+  });
+
+  it("seeds nothing when a stale CLI applies to a fresh repository", () => {
+    const cwd = createFixtureRepo();
+    writeFileSync(
+      join(cwd, ".repometa.json"),
+      `${JSON.stringify(
+        {
+          standards: currentStandardsVersion() + 1,
+          visibility: "oss",
+          since: 2020,
+          platform: "github",
+        },
+        undefined,
+        2,
+      )}\n`,
+    );
+
+    expect(runApply(cwd, YEAR)).toStrictEqual([]);
+    expect(existsSync(join(cwd, "eslint.config.ts"))).toBe(false);
+    expect(existsSync(join(cwd, ".oxfmtrc.json"))).toBe(false);
+  });
+
+  it("still self-heals the stamp when --from-version was supplied", () => {
+    const current = currentStandardsVersion();
+    const cwd = createStampedFixture(current + 1);
+
+    const changes = runApply(cwd, YEAR, { explicitFromVersion: true });
+
+    expect(changes.find((change) => change.action === "bumped")).toBeDefined();
+    expect(readStamp(cwd)).toBe(current);
+  });
+
+  it("threads --from-version from the CLI, so the Renovate path keeps self-healing", () => {
+    const current = currentStandardsVersion();
+    const guarded = createStampedFixture(current + 1);
+    const healed = createStampedFixture(current + 1);
+
+    expect(runCli(["apply", "--cwd", guarded]).status).toBe(0);
+    expect(readStamp(guarded)).toBe(current + 1);
+
+    expect(runCli(["apply", "--cwd", healed, "--from-version", "0"]).status).toBe(0);
+    expect(readStamp(healed)).toBe(current);
+  });
+
+  it("reports nothing and exits 0 when the versions match", () => {
+    const cwd = createFixtureRepo();
+    runApply(cwd, YEAR);
+
+    expect(runCheck(cwd, YEAR)).toStrictEqual([]);
+    expect(runCli(["check", "--cwd", cwd]).status).toBe(0);
+  });
+
+  it("keeps the missing-platform stamp finding non-blocking", () => {
+    const cwd = createPlatformFixture(undefined);
+
+    const findings = runCheck(cwd, YEAR);
+    const missing = unwrap(findings.find((f) => f.detail.includes("platform is missing")));
+    expect(missing.blocking).toBe(false);
+    // The legacy platform block still takes precedence over the stamp bump.
+    expect(runApply(cwd, YEAR).find((change) => change.path === ".repometa.json")).toBeUndefined();
+  });
+});
+
+type CheckJsonReport = {
+  findings: Array<Record<string, unknown>>;
+  total: unknown;
+  blocking: unknown;
+};
+
+function parseCheckJson(stdout: string): CheckJsonReport {
+  const raw: unknown = JSON.parse(stdout);
+  if (!isRecord(raw) || !isUnknownArray(raw.findings)) {
+    throw new TypeError("standards check --json did not write the documented object");
+  }
+  return {
+    findings: raw.findings.map((entry) => {
+      if (!isRecord(entry)) {
+        throw new TypeError("standards check --json wrote a non-object finding");
+      }
+      return entry;
+    }),
+    total: raw.total,
+    blocking: raw.blocking,
+  };
+}
+
+describe("standards check --json", () => {
+  it("writes one object and no prose for a clean repository", () => {
+    const cwd = createFixtureRepo();
+    runApply(cwd, YEAR);
+
+    const result = runCli(["check", "--cwd", cwd, "--json"]);
+
+    expect(result.status).toBe(0);
+    expect(result.stdout).not.toContain("✓");
+    expect(JSON.parse(result.stdout)).toStrictEqual({ findings: [], total: 0, blocking: 0 });
+  });
+
+  it("carries the blocking class in the payload and in the exit code", () => {
+    const cwd = createStampedFixture(currentStandardsVersion() + 1);
+
+    const result = runCli(["check", "--cwd", cwd, "--json"]);
+
+    expect(result.status).toBe(3);
+    expect(result.stdout).not.toContain("finding(s)");
+    const parsed = parseCheckJson(result.stdout);
+    expect(parsed.total).toBe(1);
+    expect(parsed.blocking).toBe(1);
+    const first = unwrap(parsed.findings[0]);
+    expect(Object.keys(first).toSorted()).toStrictEqual(["blocking", "detail", "kind", "path"]);
+    expect(first.kind).toBe("stamp");
+    expect(first.path).toBe(".repometa.json");
+    expect(first.blocking).toBe(true);
+  });
+
+  it("counts a non-blocking finding without raising the exit code to 3", () => {
+    const cwd = createStampedFixture(currentStandardsVersion() - 1);
+
+    const result = runCli(["check", "--cwd", cwd, "--json"]);
+
+    expect(result.status).toBe(1);
+    const parsed = parseCheckJson(result.stdout);
+    expect(parsed.total).toBe(1);
+    expect(parsed.blocking).toBe(0);
+  });
+});
+
+describe("assertBlockedState", () => {
+  const validState = {
+    schemaVersion: 1,
+    blocking: true,
+    reason: "The pinned CLI ships manifest version 12, but .repometa.json is stamped 13.",
+    detectedAt: "2026-09-07T09:41:12.000Z",
+    expectedStandardsVersion: 13,
+    observedStandardsVersion: 13,
+    expectedCliVersion: "0.10.0",
+    observedCliVersion: "0.9.0",
+    failedChecks: ["standards check"],
+    retry: "Raise the pin, refresh the lockfile, re-run the gate, then delete this file.",
+  };
+
+  it("accepts a fully populated marker", () => {
+    expect(() => {
+      assertBlockedState(validState);
+    }).not.toThrow();
+  });
+
+  it("accepts nulls where a value could not be read", () => {
+    const unknownValues = {
+      ...validState,
+      blocking: false,
+      observedStandardsVersion: null,
+      expectedCliVersion: null,
+      observedCliVersion: null,
+      failedChecks: [],
+    };
+    expect(() => {
+      assertBlockedState(unknownValues);
+    }).not.toThrow();
+  });
+
+  it("rejects the wrong schemaVersion", () => {
+    expect(() => {
+      assertBlockedState({ ...validState, schemaVersion: 2 });
+    }).toThrow(/schemaVersion/);
+  });
+
+  it("rejects a non-boolean blocking flag", () => {
+    expect(() => {
+      assertBlockedState({ ...validState, blocking: "true" });
+    }).toThrow(/blocking/);
+  });
+
+  it("rejects a missing expectedStandardsVersion", () => {
+    const { expectedStandardsVersion, ...rest } = validState;
+    void expectedStandardsVersion;
+    expect(() => {
+      assertBlockedState(rest);
+    }).toThrow(/expectedStandardsVersion/);
+  });
+
+  it("rejects failedChecks that is not an array of strings", () => {
+    expect(() => {
+      assertBlockedState({ ...validState, failedChecks: "standards check" });
+    }).toThrow(/failedChecks/);
+  });
+
+  it("rejects a missing retry sentence", () => {
+    const { retry, ...rest } = validState;
+    void retry;
+    expect(() => {
+      assertBlockedState(rest);
+    }).toThrow(/retry/);
+  });
+
+  it("rejects a non-object", () => {
+    expect(() => {
+      assertBlockedState(null);
+    }).toThrow(/expected an object/);
+  });
+});
+
+/** A marker that satisfies `BlockedState`, as documented in `SKILL.md`. */
+const VALID_MARKER = {
+  schemaVersion: 1,
+  blocking: true,
+  reason: "The pinned CLI ships manifest version 12, but .repometa.json is stamped 13.",
+  detectedAt: "2026-09-07T09:41:12.000Z",
+  expectedStandardsVersion: 13,
+  observedStandardsVersion: 13,
+  expectedCliVersion: "0.10.0",
+  observedCliVersion: "0.9.0",
+  failedChecks: ["standards check"],
+  retry: "Raise the pin, refresh the lockfile, re-run the gate, then delete this file.",
+};
+
+/**
+ * The body of the workflow's `node -e "…"` marker guard. Reading it out of the
+ * workflow rather than restating it is what makes the tests below exercise the
+ * script CI actually runs. Every string inside that script is single-quoted, so
+ * the first double quote after the flag terminates it.
+ */
+function markerGuardScriptOf(file: string): string {
+  const workflow = readFileSync(join(standardsRoot(), file), "utf8");
+  const step = workflow.slice(workflow.indexOf('- name: "Guard: no blocking agent findings'));
+  const flag = 'node -e "';
+  const start = step.indexOf(flag) + flag.length;
+  return step.slice(start, step.indexOf('"', start));
+}
+
+function runMarkerGuard(
+  file: string,
+  marker?: string,
+): { status: null | number; stderr: string; stdout: string } {
+  const cwd = mkdtempSync(join(tmpdir(), "standards-guard-"));
+  if (marker !== undefined) {
+    mkdirSync(join(cwd, ".standards"), { recursive: true });
+    writeFileSync(join(cwd, ".standards", "blocked.json"), marker);
+  }
+  const result = spawnSync(process.execPath, ["-e", markerGuardScriptOf(file)], {
+    cwd,
+    encoding: "utf8",
+  });
+  return { status: result.status, stdout: result.stdout, stderr: result.stderr };
+}
+
+describe("seeded CI guards for alignment and the blocked marker", () => {
+  const nodeWorkflows = [
+    "reference/node/github-workflows-ci.yml",
+    "reference/node/forgejo-workflows-ci.yml",
+  ];
+
+  it.each(nodeWorkflows)("%s resolves the manifest and compares it to the stamp", (file) => {
+    const workflow = readFileSync(join(standardsRoot(), file), "utf8");
+
+    expect(workflow).toContain("require.resolve('@sebastian-software/standards/manifest.json'");
+    // Nested workspaces per change 0012 are searched as well.
+    expect(workflow).toContain("meta.workspaces");
+    expect(workflow).toContain("manifest.currentVersion !== meta.standards");
+    // `jq` is not guaranteed in the Forgejo node image, so no step may call it.
+    const executable = workflow
+      .split("\n")
+      .filter((line) => !line.trimStart().startsWith("#"))
+      .join("\n");
+    expect(executable).not.toContain("jq");
+    // The guard sits immediately before the drift lane, so a lint or test
+    // failure in the same run stays visible to a reviewer.
+    expect(workflow.indexOf("matches the repository stamp")).toBeLessThan(
+      workflow.indexOf("pnpm exec standards check"),
+    );
+  });
+
+  const guardedWorkflows = [...nodeWorkflows, "reference/rust/ci.yml"];
+
+  it.each(guardedWorkflows)("%s places the marker guard where it can run", (file) => {
+    const workflow = readFileSync(join(standardsRoot(), file), "utf8");
+
+    expect(workflow).toContain(".standards/blocked.json");
+    // The marker guard follows the pending guard it complements.
+    expect(workflow.indexOf("test ! -f .standards/pending.json")).toBeLessThan(
+      workflow.indexOf("no blocking agent findings"),
+    );
+    // It parses the marker with `node`, so the toolchain has to be set up
+    // first — in the Rust workflow the guard sits below the node setup for
+    // exactly this reason.
+    expect(workflow.indexOf("actions/setup-node")).toBeLessThan(
+      workflow.indexOf("no blocking agent findings"),
+    );
+    // A line-oriented match is what let a multi-line marker through.
+    expect(workflow).not.toContain("[[:space:]]");
+  });
+
+  it.each(guardedWorkflows)("%s passes a repository without a marker", (file) => {
+    expect(runMarkerGuard(file).status).toBe(0);
+  });
+
+  it.each(guardedWorkflows)("%s passes a valid non-blocking marker", (file) => {
+    const result = runMarkerGuard(file, JSON.stringify({ ...VALID_MARKER, blocking: false }));
+
+    expect(result.status).toBe(0);
+    expect(result.stdout).toContain("non-blocking");
+  });
+
+  it.each(guardedWorkflows)("%s fails on a blocking marker", (file) => {
+    const result = runMarkerGuard(file, JSON.stringify(VALID_MARKER));
+
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain("could not validate its result");
+  });
+
+  it.each(guardedWorkflows)("%s fails on a blocking flag split across lines", (file) => {
+    // The exact shape the line-oriented `grep` missed: JSON permits a newline
+    // between the key and its value, and the marker still records a blocking
+    // result.
+    const marker = JSON.stringify(VALID_MARKER, undefined, 2).replace(
+      '"blocking": true',
+      '"blocking":\n    true',
+    );
+    expect(marker).not.toContain('"blocking": true');
+
+    const result = runMarkerGuard(file, marker);
+
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain("could not validate its result");
+  });
+
+  it.each(guardedWorkflows)("%s fails on a marker that is not valid JSON", (file) => {
+    const result = runMarkerGuard(file, '{ "blocking": tru\n');
+
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain("not valid JSON");
+  });
+
+  it.each(guardedWorkflows)("%s fails on a marker that violates the schema", (file) => {
+    const { retry, ...withoutRetry } = VALID_MARKER;
+    void retry;
+
+    const result = runMarkerGuard(file, JSON.stringify({ ...withoutRetry, blocking: false }));
+
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain("does not match the documented schema");
+    expect(result.stderr).toContain("retry");
+  });
+
+  it.each(guardedWorkflows)("%s fails on a marker that is not an object", (file) => {
+    const result = runMarkerGuard(file, "[]\n");
+
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain("not a JSON object");
+  });
+
+  it("validates every field the authoritative schema declares", () => {
+    const guard = markerGuardScriptOf("reference/node/github-workflows-ci.yml");
+
+    for (const field of Object.keys(VALID_MARKER)) {
+      expect(guard).toContain(field);
+    }
   });
 });

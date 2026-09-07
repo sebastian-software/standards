@@ -38,9 +38,37 @@ for the full step-by-step procedure.
 
    The `--config.minimum-release-age=0` is mandatory on every `dlx` call of
    this package: pnpm 11 holds back versions younger than 24h, so without the
-   bypass a version released today cannot resolve at all. Raise the pin and run
-   `apply` in the same change — a CLI older than the stamp reports drift that
-   does not exist.
+   bypass a version released today cannot resolve at all.
+
+   Raise the pin and run `apply` in the same change. `check` compares
+   `.repometa.json#standards` against the `manifest.json#currentVersion` of the
+   CLI that runs it, and the two directions are different defects:
+
+   - **Repository behind the CLI** — ordinary drift. `standards apply` and the
+     changelog entries repair it; `check` exits `1`.
+   - **CLI behind the repository** — the run itself is invalid, because every
+     other verdict was computed against an outdated manifest. `check` reports
+     this as a **blocking** finding and exits `3`. It is not repaired by
+     `apply`; the fix is to raise the `@sebastian-software/standards` pin to the
+     release whose manifest carries the stamped version and refresh the
+     lockfile. `apply` writes **nothing at all** in this direction — not the
+     managed files, not the seeds, not the sections, and not the stamp — because
+     a stale CLI carries the references of an earlier standards version and
+     writing them would downgrade the repository's content while the stamp still
+     claims the newer version. The evidence therefore survives untouched, except
+     when `--from-version` was passed, which is the Renovate path where the
+     stamp is legitimately raised ahead of the CLI that runs.
+
+   Compatibility is never inferred from npm semver ordering. Prove it on two
+   values: the installed `manifest.json#currentVersion` must equal
+   `.repometa.json#standards`, and the pinned npm version must equal
+   `.standards/pending.json#cliVersion` where a payload exists.
+
+   `standards check --json` writes one object —
+   `{ "findings": [{ "kind", "path", "detail", "blocking" }], "total", "blocking" }` —
+   and no prose, for agents that need the classes rather than the text. Exit
+   codes: `0` clean, `1` non-blocking findings only, `3` at least one blocking
+   finding, `2` a usage error.
 
 2. Run `standards apply`. It writes managed files, seeds missing ones, updates
    branding sections and bumps the stamp. This covers the mechanical part only.
@@ -127,10 +155,14 @@ Pipeline order for a `standards:` PR:
 
 1. Renovate opens the bump PR.
 2. **Agent run 1 — mechanics:** the external pull-mode agent works
-   through `.standards/pending.json`, runs the repo's gate in CI mode
+   through `.standards/pending.json`, raises the
+   `@sebastian-software/standards` pin to that payload's `cliVersion` and
+   refreshes the lockfile, runs the repo's gate in CI mode
    (`agent:check:ci`, else `agent:check`) and uses the output as fix
    hints, commits the judgement changes to the branch and **always
-   pushes** regardless of the check outcome, deletes the marker, removes
+   pushes** regardless of the check outcome, writes or deletes
+   `.standards/blocked.json` according to whether anything is still
+   failing or incomplete, deletes the pending marker, removes
    the `standards:needs-agent` label, and sets `standards:needs-review`.
 3. **Agent run 2 — semantic pre-check:** the same agent runs with a
    fresh context, reads the resulting diff plus the relevant SKILL/
@@ -141,6 +173,83 @@ Pipeline order for a `standards:` PR:
 
 Until agent run 2 is wired, the maintainer reviews the diff manually
 against the SKILL.md rules without an LLM pre-comment.
+
+## The blocked marker
+
+Pushing is not the same as having validated what was pushed. Run 1 always
+pushes — that policy does not change — so the unvalidated case needs a trace a
+machine can read. That trace is `.standards/blocked.json`.
+
+Write it whenever **any** gate check is still failing or incomplete after the
+best-effort fixes. Delete it when none is. It is never a run trigger: run 1 is
+started by `.standards/pending.json` plus `standards:needs-agent`, so a marker
+left behind fails the pull request and waits for a human or a new migration — it
+cannot cause a retry loop.
+
+```json
+{
+  "schemaVersion": 1,
+  "blocking": true,
+  "reason": "The pinned CLI ships manifest version 12, but .repometa.json is stamped 13.",
+  "detectedAt": "2026-09-07T09:41:12.000Z",
+  "expectedStandardsVersion": 13,
+  "observedStandardsVersion": 13,
+  "expectedCliVersion": "0.10.0",
+  "observedCliVersion": "0.9.0",
+  "failedChecks": ["standards check"],
+  "retry": "Raise the @sebastian-software/standards devDependency to 0.10.0, refresh the lockfile, re-run the gate, then delete this file."
+}
+```
+
+- `blocking` is `true` **only** for the CLI/stamp alignment class — the pinned
+  CLI does not ship the manifest version the repository is stamped at, so no
+  verdict of that run can be trusted. The seeded CI guard hard-fails on it.
+- Every other unfinished check sets `blocking: false` and lists the check in
+  `failedChecks`. Those failures already fail the repository's own lanes; the
+  marker records them as context for the reviewer rather than as a second
+  failure source.
+- `observedStandardsVersion`, `expectedCliVersion` and `observedCliVersion` are
+  `null` where the value could not be read.
+- `retry` states, in one sentence, what has to happen before the file is
+  removed.
+- The seeded CI guard **parses** the marker rather than matching lines, and
+  fails closed on a file it cannot read: invalid JSON, or a marker that does not
+  satisfy the schema above, fails the pull request exactly as `blocking: true`
+  does. A guard whose purpose is to stop an unvalidated result must not be
+  satisfied by a marker it did not understand.
+
+The schema has one authoritative definition: `BlockedState` and
+`assertBlockedState` in `src/blocked.ts` of this package.
+
+`standards apply` neither writes nor deletes the marker — it only ever unlinks
+the path it was given via `--emit-pending`. `.standards/` is excluded from
+formatting and spell checking, so the file does not fight the gate it reports
+on. Create the directory if the repository does not have one.
+
+## Who owns which transition
+
+The pull request state moves through steps that live in two different places.
+This package owns the payload schema, the prompt text, this document, the
+seeded CI guards, the migration entries and the semantics of `standards check`.
+The external agent wiring owns everything that touches the forge.
+
+| Transition                                | Owner                                           |
+| ----------------------------------------- | ----------------------------------------------- |
+| Write `.standards/pending.json`           | this package (`standards apply --emit-pending`) |
+| Read `.standards/pending.json`            | external wiring                                 |
+| Commit and push the judgement result      | external wiring                                 |
+| Post the run-1 information comment        | external wiring                                 |
+| Post the run-2 summary comment            | external wiring                                 |
+| Delete `.standards/pending.json`          | external wiring                                 |
+| Write or delete `.standards/blocked.json` | external wiring (schema owned here)             |
+| Add or remove `standards:needs-agent`     | external wiring                                 |
+| Add or remove `standards:needs-review`    | external wiring                                 |
+| Fail CI on a marker or on drift           | this package (seeded workflows)                 |
+| Merge                                     | a human, always                                 |
+
+Nothing in this package reads a payload or a marker back at runtime. Both
+schemas are therefore contracts kept by coordination, not by a fail-closed
+guard, which is why every change to them is listed below rather than assumed.
 
 ## Branch protection setup
 
@@ -208,14 +317,27 @@ transfer between runs:
    `.standards/pending.json` in the PR diff. Reads `pending.json` — its
    `prompt` field carries the instructions and references the `changes`
    array for the changelog bodies (which are not duplicated into the
-   prompt). Performs the judgement steps, and runs the repo's own gate in CI mode
+   prompt).
+
+   Its first step is the alignment pre-flight: raise the
+   `@sebastian-software/standards` pin to `pending.json#cliVersion` (the
+   npm version of the CLI that wrote the payload — under Renovate that is
+   the freshly resolved `dlx` CLI, not the repository's possibly stale
+   one), refresh the lockfile, and verify that the installed
+   `manifest.json#currentVersion` equals `pending.json#toVersion` and that
+   `.repometa.json#standards` does too after `apply`. Rust-only
+   repositories raise the pinned `dlx` version in the CI workflow instead.
+
+   It then performs the judgement steps, and runs the repo's own gate in CI mode
    — prefer `agent:check:ci`, fall back to `agent:check` — using the
    output as hints to improve the changes. The checks are **not** a merge
    gate: the agent does not abort on a failing check and always commits
    and pushes its best-effort result to the PR branch (never the default
-   branch — see step 5 of the Workflow). It then deletes
-   `pending.json`, removes the `standards:needs-agent` label, and sets
-   `standards:needs-review` (and/or writes
+   branch — see step 5 of the Workflow). It writes
+   `.standards/blocked.json` when any check is still failing or
+   incomplete and deletes it when none is (see "The blocked marker"). It
+   then deletes `pending.json`, removes the `standards:needs-agent`
+   label, and sets `standards:needs-review` (and/or writes
    `.standards/review-pending.json`) as the last step.
 
    The pull request's own full CI run plus human review are the actual
@@ -280,3 +402,24 @@ The external wiring (webhook receiver, prompt routing, secrets) is
 tracked outside this repo. One follow-up ticket covers both runs — they
 share the same infrastructure, only the trigger path and prompt mode
 differ. Link to the external ticket goes here once it exists.
+
+Open items the external side has to adopt, from standards version 13:
+
+1. **Read `pending.json#cliVersion`.** It is additive; `schemaVersion` stays
+   `1`, so a payload written before version 13 simply does not carry the field
+   and a reader must tolerate its absence rather than fail closed. When it is
+   present, the pin is raised to exactly that value.
+2. **Add `--config.minimum-release-age=0` to the Renovate `postUpgradeTasks`
+   invocation.** The command is
+   `pnpm dlx @sebastian-software/standards apply --from-version {{currentValue}} --emit-pending …`;
+   without the bypass, pnpm 11 resolves a release up to 24 hours old and
+   `cliVersion` silently records a lagging version, which defeats the whole
+   mechanism. This is server configuration outside this repository.
+3. **Write and delete `.standards/blocked.json`** per the schema above,
+   including the `blocking` flag and the `retry` sentence.
+4. **Keep the `--from-version` flag on every automated `apply`.** It is what
+   tells the CLI that a stamp raised ahead of it is legitimate; without it the
+   CLI applies nothing at all, so the migration pull request goes red with no
+   payload and therefore no agent trigger.
+5. **Treat `standards check` exit code `3` as unmergeable**, `1` as ordinary
+   drift to be applied, and `2` as a usage error in the wiring itself.
