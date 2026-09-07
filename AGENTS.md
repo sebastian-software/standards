@@ -24,3 +24,5 @@ Rust repositories:
   never by widening the org allow-list.
 
 <!-- sebastian-software-consumer-agents:end -->
+
+**Effective Flow project setup:** docs/adr/effective-flow-project-setup.md
