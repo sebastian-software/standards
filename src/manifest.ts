@@ -53,3 +53,17 @@ export function loadManifest(packageRoot: string): Manifest {
   assertManifest(raw);
   return raw;
 }
+
+/**
+ * The npm version of the CLI that is running, read from its own
+ * `package.json`. `manifest.json#currentVersion` states which standards version
+ * this CLI ships; this states which release a consumer has to pin to get it.
+ * The two are independent numbers and both are needed to prove alignment.
+ */
+export function loadCliVersion(packageRoot: string): string {
+  const raw: unknown = JSON.parse(readFileSync(join(packageRoot, "package.json"), "utf8"));
+  if (!isRecord(raw) || typeof raw.version !== "string") {
+    throw new Error("Invalid package.json: expected { version: string }");
+  }
+  return raw.version;
+}

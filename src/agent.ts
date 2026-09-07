@@ -21,6 +21,12 @@ export type PromptInput = {
   scopeNames: string[];
   fromVersion: number;
   toVersion: number;
+  /**
+   * The npm version of the CLI that produced this prompt. Only meaningful in
+   * `pending-file` mode, where the producing CLI is Renovate's freshly resolved
+   * one and the consumer's pin has to be raised to match it.
+   */
+  cliVersion?: string;
   changes: ChangeEntry[];
   changesSource?: ChangesSource;
 };
@@ -38,30 +44,55 @@ ${index}`;
   return changes.map((entry) => `### ${entry.file}\n\n${entry.content.trim()}`).join("\n\n");
 }
 
-export function buildPrompt(input: PromptInput): string {
-  const skill = readFileSync(join(input.packageRoot, "SKILL.md"), "utf8");
-  const changesSection = renderChangesSection(input.changes, input.changesSource ?? "inline");
+/**
+ * The alignment pre-flight, and why it is conditioned on the source.
+ *
+ * In `pending-file` mode the payload was written by Renovate's freshly resolved
+ * CLI, so `cliVersion` names a release the repository does not have yet and
+ * raising the pin to it is the first thing to do. In `inline` mode the prompt
+ * comes from `standards sync`, which runs the repository's own — possibly
+ * stale — CLI; instructing that run to pin to `cliVersion` would tell it to pin
+ * to the very version whose staleness is the defect. So the step is omitted
+ * there and the drift surfaces through `standards check` instead.
+ */
+function renderPreflightSection(input: PromptInput, source: ChangesSource): string {
+  if (source !== "pending-file") {
+    return "";
+  }
+  const cli = input.cliVersion ?? "the version named in `.standards/pending.json#cliVersion`";
+  return `## Pre-flight: align the CLI with the version stamp
 
-  return `You are migrating this repository to the Sebastian Software org standards.
+This payload was produced by \`@sebastian-software/standards\` version ${cli},
+which ships standards version ${String(input.toVersion)}. Do this before the
+judgement steps, because every \`standards check\` verdict below is computed
+against the manifest of whichever CLI actually runs:
 
-Context:
-- Previous standards version: ${String(input.fromVersion)}, target: ${String(input.toVersion)}
-- Detected scopes: ${input.scopeNames.join(", ")}
-- visibility: ${input.meta.visibility}, since: ${String(input.meta.since)}
-- Documented exceptions: ${JSON.stringify(input.meta.exceptions ?? [])}
-- The mechanical part (\`standards apply\`) has already been executed; managed
-  files, seeded files, branding section and the version stamp are up to date.
+1. Raise the pin. Node-scope repositories set the devDependency to exactly that
+   version (\`pnpm add --save-dev --save-exact @sebastian-software/standards@${cli}\`);
+   in a nested workspace it belongs in the package.json the CI job installs
+   from. Rust-only repositories raise the pinned \`dlx\` version in the CI
+   workflow instead.
+2. Refresh the lockfile in the same commit, so \`pnpm install --frozen-lockfile\`
+   in CI installs the version you just pinned.
+3. Verify on two independent values, and never infer compatibility from npm
+   semver ordering: the installed \`manifest.json#currentVersion\` must equal
+   ${String(input.toVersion)}, and \`.repometa.json#standards\` must equal
+   ${String(input.toVersion)} after \`standards apply\`. \`standards check\`
+   exits 3 while they disagree.
+4. If you cannot complete this — the registry is unreachable, the resolution
+   conflicts — still push your best-effort commits and write
+   \`.standards/blocked.json\` with \`blocking: true\` and that reason, per the
+   Validation section below.
 
-Your job is the judgement part: carry out the migration steps of the changelog
-entries below that apply to this repository, following the instructions.
+`;
+}
 
-${skill}
-
-## Changelog entries to execute
-
-${changesSection}
-
-## Validation
+/**
+ * The gate contract: run it, treat it as hints, always finalize, and leave a
+ * machine-readable trace of whatever stayed red. It is invariant across both
+ * `ChangesSource` modes, so it lives outside the template.
+ */
+const VALIDATION_SECTION = `## Validation
 
 After applying the judgement steps, run the repository's own quality gate to
 guide your changes. Prefer \`pnpm agent:check:ci\` and fall back to
@@ -80,7 +111,53 @@ Treat the check output as hints to improve your changes, not as a merge gate:
   human can verify. Post it only when there are failed or incomplete checks; if
   everything passed, post no such comment. It is in addition to the summary
   comment and does not change the always-finalize behavior above.
+
+Publication is not validated completion, so record the difference in a file a
+machine can read:
+
+- If any gate check is still failing or incomplete after your best-effort
+  fixes, write \`.standards/blocked.json\` — creating \`.standards/\` if it does
+  not exist — and commit it with the rest of your work. Its schema is documented
+  in the SKILL text above. Set \`blocking: true\` only when the
+  \`@sebastian-software/standards\` pin and the version stamp could not be
+  brought into agreement; every other unfinished check sets \`blocking: false\`
+  and is listed in \`failedChecks\`, because the repository's own lanes already
+  report those.
+- If nothing is failing or incomplete, delete \`.standards/blocked.json\` when
+  it exists from an earlier run, and commit that deletion.
+- Writing the marker never replaces pushing. Push in both cases; the marker
+  records the state of the result, it does not withhold it.
 `;
+
+export function buildPrompt(input: PromptInput): string {
+  const skill = readFileSync(join(input.packageRoot, "SKILL.md"), "utf8");
+  const source = input.changesSource ?? "inline";
+  const changesSection = renderChangesSection(input.changes, source);
+  const preflightSection = renderPreflightSection(input, source);
+
+  return `You are migrating this repository to the Sebastian Software org standards.
+
+Context:
+- Previous standards version: ${String(input.fromVersion)}, target: ${String(input.toVersion)}
+- Detected scopes: ${input.scopeNames.join(", ")}
+- visibility: ${input.meta.visibility}, since: ${String(input.meta.since)}
+- Documented exceptions: ${JSON.stringify(input.meta.exceptions ?? [])}
+- The mechanical part (\`standards apply\`) has already been executed; managed
+  files, seeded files and the branding section are up to date. The version stamp
+  is *not* something to assume: \`apply\` bumps it only when the CLI that ran is
+  at least as new as the repository's stamp, so verify it rather than trusting
+  it.
+
+Your job is the judgement part: carry out the migration steps of the changelog
+entries below that apply to this repository, following the instructions.
+
+${skill}
+
+${preflightSection}## Changelog entries to execute
+
+${changesSection}
+
+${VALIDATION_SECTION}`;
 }
 
 // Force CI mode so the local `standards sync` fallback exercises the same

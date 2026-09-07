@@ -14,7 +14,7 @@ import type { Platform, RepoMeta } from "./repo.js";
 import { buildPrompt } from "./agent.js";
 import { copyrightYears, renderTemplate, upsertSection } from "./branding.js";
 import { selectChanges } from "./changes.js";
-import { getPackageRoot, loadManifest } from "./manifest.js";
+import { getPackageRoot, loadCliVersion, loadManifest } from "./manifest.js";
 import { detectScopes, readRepoMeta } from "./repo.js";
 
 export function matchesPlatform(
@@ -197,6 +197,19 @@ export type PendingPayload = {
   schemaVersion: 1;
   fromVersion: number;
   toVersion: number;
+  /**
+   * The npm version of the CLI that produced this payload, read from its own
+   * `package.json`. Under Renovate's `postUpgradeTasks` that is the freshly
+   * resolved `dlx` CLI, so the field carries correct information even when the
+   * repository's own installed CLI is stale — which is exactly the case the
+   * consumer has to repair by raising its pin to this value.
+   *
+   * Optional because the field is additive: `schemaVersion` stays `1`. Every
+   * writer populates it — `buildPendingPayload` always does — but a reader has
+   * to tolerate its absence, because a payload an older CLI wrote and left in
+   * flight when this release lands carries no `cliVersion` and is still valid.
+   */
+  cliVersion?: string;
   scopes: string[];
   visibility: RepoMeta["visibility"];
   exceptions: string[];
@@ -248,6 +261,12 @@ function assertPayloadHeader(value: Record<string, unknown>): void {
   if (typeof value.toVersion !== "number") {
     throw new TypeError("Invalid pending payload: toVersion is not a number.");
   }
+  // Validated when present, not required: `cliVersion` was added without a
+  // schema bump, so a payload written by an older CLI and still sitting on a
+  // branch stays acceptable rather than failing a reader closed.
+  if (value.cliVersion !== undefined && typeof value.cliVersion !== "string") {
+    throw new TypeError("Invalid pending payload: cliVersion is not a string.");
+  }
 }
 
 function assertPayloadMeta(value: Record<string, unknown>): void {
@@ -292,6 +311,7 @@ export function buildPendingPayload(
 ): PendingPayload | undefined {
   const packageRoot = getPackageRoot();
   const manifest = loadManifest(packageRoot);
+  const cliVersion = loadCliVersion(packageRoot);
   const meta = preReadMeta ?? readRepoMeta(cwd);
   const scopeNames = detectScopeNames(cwd, manifest, meta);
   const changes = selectChanges(packageRoot, fromVersion, scopeNames);
@@ -304,6 +324,7 @@ export function buildPendingPayload(
     scopeNames,
     fromVersion,
     toVersion: manifest.currentVersion,
+    cliVersion,
     changes,
     // The prompt ships inside pending.json next to the `changes` array, so it
     // references that array instead of duplicating every changelog body.
@@ -313,6 +334,7 @@ export function buildPendingPayload(
     schemaVersion: 1,
     fromVersion,
     toVersion: manifest.currentVersion,
+    cliVersion,
     scopes: scopeNames,
     visibility: meta.visibility,
     exceptions: meta.exceptions ?? [],

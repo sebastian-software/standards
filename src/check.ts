@@ -9,6 +9,17 @@ export type Finding = {
   kind: "managed" | "section" | "seeded" | "stamp";
   path: string;
   detail: string;
+  /**
+   * Whether the finding must stop a pull request from merging rather than being
+   * repaired by `standards apply`. Exactly one finding is blocking: the version
+   * stamp mismatch in the direction `manifest.currentVersion < meta.standards`,
+   * where the installed CLI is older than the repository it is checking and
+   * every other verdict it produces is computed against the wrong manifest.
+   * Every other finding — managed, seeded, section, the repository-behind
+   * direction of the stamp check and the missing-platform stamp finding — is
+   * non-blocking: `standards apply` or a documented migration step repairs it.
+   */
+  blocking: boolean;
 };
 
 function checkManaged(context: SyncContext, scope: ScopeSpec, dir: string): Finding[] {
@@ -18,7 +29,14 @@ function checkManaged(context: SyncContext, scope: ScopeSpec, dir: string): Find
       const target = join(dir, mapping.target);
       const actual = readTarget(context, target);
       if (actual === undefined) {
-        return [{ kind: "managed" as const, path: target, detail: "managed file is missing" }];
+        return [
+          {
+            kind: "managed" as const,
+            path: target,
+            detail: "managed file is missing",
+            blocking: false,
+          },
+        ];
       }
       if (actual !== readReference(context, mapping.source)) {
         return [
@@ -26,6 +44,7 @@ function checkManaged(context: SyncContext, scope: ScopeSpec, dir: string): Find
             kind: "managed" as const,
             path: target,
             detail: "managed file differs from reference",
+            blocking: false,
           },
         ];
       }
@@ -41,6 +60,7 @@ function checkSeeded(context: SyncContext, scope: ScopeSpec, dir: string): Findi
       kind: "seeded" as const,
       path: join(dir, mapping.target),
       detail: "seeded file is missing",
+      blocking: false,
     }));
 }
 
@@ -57,6 +77,7 @@ function checkSections(context: SyncContext, scope: ScopeSpec): Finding[] {
           kind: "section" as const,
           path: section.file,
           detail: `section "${section.marker}" is ${state === "appended" ? "missing" : "outdated"}`,
+          blocking: false,
         },
       ];
     });
@@ -71,16 +92,40 @@ function hasPlatformScopedEntries(scopes: ScopeSpec[]): boolean {
   );
 }
 
+/**
+ * The version stamp check, stated directionally. The two directions are
+ * different defects and need different words: a repository behind its CLI is
+ * ordinary drift that `standards apply` and the changelog entries repair, while
+ * a CLI behind its repository means the whole check ran against an outdated
+ * manifest — the repository cannot be validated at all until the pin is raised.
+ */
+function stampFinding(stamped: number, current: number): Finding | undefined {
+  if (stamped === current) {
+    return undefined;
+  }
+  if (stamped < current) {
+    return {
+      kind: "stamp",
+      path: ".repometa.json",
+      detail: `standards version is ${String(stamped)}, the installed CLI ships ${String(current)} — the repository is behind the installed CLI; see changes/ for migration steps`,
+      blocking: false,
+    };
+  }
+  return {
+    kind: "stamp",
+    path: ".repometa.json",
+    detail: `standards version is ${String(stamped)}, the installed CLI ships ${String(current)} — the installed CLI is behind the repository; every other finding of this run was computed against the wrong manifest. Raise the \`@sebastian-software/standards\` pin to the release whose manifest is version ${String(stamped)} and refresh the lockfile, then re-run.`,
+    blocking: true,
+  };
+}
+
 export function runCheck(cwd: string, currentYear: number): Finding[] {
   const context = createContext(cwd, currentYear);
   const findings: Finding[] = [];
 
-  if (context.meta.standards !== context.manifest.currentVersion) {
-    findings.push({
-      kind: "stamp",
-      path: ".repometa.json",
-      detail: `standards version is ${String(context.meta.standards)}, current is ${String(context.manifest.currentVersion)} — see changes/ for migration steps`,
-    });
+  const stamp = stampFinding(context.meta.standards, context.manifest.currentVersion);
+  if (stamp !== undefined) {
+    findings.push(stamp);
   }
 
   if (context.meta.platform === undefined && hasPlatformScopedEntries(context.scopes)) {
@@ -89,6 +134,7 @@ export function runCheck(cwd: string, currentYear: number): Finding[] {
       path: ".repometa.json",
       detail:
         "platform is missing; run `standards init --force --platform <github|forgejo>` to set it",
+      blocking: false,
     });
   }
 

@@ -82,8 +82,34 @@ function hasPlatformScopedEntries(scopes: ScopeSpec[]): boolean {
   );
 }
 
-export function runApply(cwd: string, currentYear: number, preReadMeta?: RepoMeta): Change[] {
-  const context = createContext(cwd, currentYear, preReadMeta);
+export type ApplyOptions = {
+  /**
+   * `.repometa.json` the caller has already read. Passing it keeps a single
+   * read per command, so `apply` and the pending-marker build see the same
+   * meta even though the file is rewritten in between.
+   */
+  preReadMeta?: RepoMeta;
+  /**
+   * Whether the caller passed `--from-version` explicitly. It is the reliable
+   * discriminator between the two ways `apply` can meet a repository stamped
+   * ahead of the running CLI:
+   *
+   * - Renovate always passes it, and it legitimately raises
+   *   `.repometa.json#standards` before the `dlx`-resolved CLI runs. That CLI
+   *   may be older than the raised stamp, and self-healing the stamp downwards
+   *   is what keeps the migration pull request green.
+   * - A human or agent invoking a stale pinned CLI directly passes nothing. The
+   *   stamp is then evidence of a real misalignment, and lowering it would
+   *   erase exactly the signal `standards check` needs to report.
+   *
+   * The signal is threaded from `applyCommand` rather than re-derived here:
+   * `runApply` sees only the resulting meta, in which both cases look alike.
+   */
+  explicitFromVersion?: boolean;
+};
+
+export function runApply(cwd: string, currentYear: number, options?: ApplyOptions): Change[] {
+  const context = createContext(cwd, currentYear, options?.preReadMeta);
   const changes: Change[] = [];
 
   for (const unit of context.units) {
@@ -99,7 +125,17 @@ export function runApply(cwd: string, currentYear: number, preReadMeta?: RepoMet
   const blockedByLegacyPlatform =
     context.meta.platform === undefined && hasPlatformScopedEntries(context.scopes);
 
-  if (context.meta.standards !== context.manifest.currentVersion && !blockedByLegacyPlatform) {
+  // A CLI older than the repository's stamp must not rewrite that stamp down to
+  // its own manifest version; see `ApplyOptions.explicitFromVersion`.
+  const blockedByStaleCli =
+    context.manifest.currentVersion < context.meta.standards &&
+    options?.explicitFromVersion !== true;
+
+  if (
+    context.meta.standards !== context.manifest.currentVersion &&
+    !blockedByLegacyPlatform &&
+    !blockedByStaleCli
+  ) {
     writeRepoMeta(cwd, { ...context.meta, standards: context.manifest.currentVersion });
     changes.push({ path: ".repometa.json", action: "bumped" });
   }
