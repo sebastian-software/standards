@@ -722,11 +722,13 @@ describe("rust scope", () => {
   });
 
   it("lets release-please carry the pinned CLI in the reference drift lane", () => {
-    const pinned = readFileSync(join(standardsRoot(), "reference/rust/ci.yml"), "utf8")
-      .split("\n")
-      .filter((line) => line.includes("dlx @sebastian-software/standards@"));
+    const lines = readFileSync(join(standardsRoot(), "reference/rust/ci.yml"), "utf8").split("\n");
+    const pinned = lines.filter((line) => line.includes("dlx @sebastian-software/standards@"));
 
     expect(pinned).toHaveLength(1);
+    // The generic updater rewrites every annotated line, so a second one — a
+    // comment explaining the pin, say — is a rewrite target nobody intended.
+    expect(lines.filter((line) => line.includes("x-release-please-version"))).toHaveLength(1);
     // A published tarball must never tell a Rust repository to run a CLI older
     // than the `manifest.json#currentVersion` that same tarball ships, and the
     // stale-CLI mismatch is a blocking finding. release-please bumps the pin in

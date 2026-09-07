@@ -188,7 +188,7 @@ jobs:
       # (24h), so without the bypass a pin that was raised on the day of a
       # standards release cannot resolve at all.
       #
-      # The x-release-please-version marker is for the standards repository:
+      # The release pin marker is for the standards repository:
       # release-please rewrites the pin below whenever it bumps package.json,
       # so the shipped reference never names a CLI older than its own stamp.
       # In a consumer repository the marker is inert and Renovate owns the pin.
