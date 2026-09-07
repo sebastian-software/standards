@@ -2192,6 +2192,50 @@ describe("assertBlockedState", () => {
   });
 });
 
+/** A marker that satisfies `BlockedState`, as documented in `SKILL.md`. */
+const VALID_MARKER = {
+  schemaVersion: 1,
+  blocking: true,
+  reason: "The pinned CLI ships manifest version 12, but .repometa.json is stamped 13.",
+  detectedAt: "2026-09-07T09:41:12.000Z",
+  expectedStandardsVersion: 13,
+  observedStandardsVersion: 13,
+  expectedCliVersion: "0.10.0",
+  observedCliVersion: "0.9.0",
+  failedChecks: ["standards check"],
+  retry: "Raise the pin, refresh the lockfile, re-run the gate, then delete this file.",
+};
+
+/**
+ * The body of the workflow's `node -e "…"` marker guard. Reading it out of the
+ * workflow rather than restating it is what makes the tests below exercise the
+ * script CI actually runs. Every string inside that script is single-quoted, so
+ * the first double quote after the flag terminates it.
+ */
+function markerGuardScriptOf(file: string): string {
+  const workflow = readFileSync(join(standardsRoot(), file), "utf8");
+  const step = workflow.slice(workflow.indexOf('- name: "Guard: no blocking agent findings'));
+  const flag = 'node -e "';
+  const start = step.indexOf(flag) + flag.length;
+  return step.slice(start, step.indexOf('"', start));
+}
+
+function runMarkerGuard(
+  file: string,
+  marker?: string,
+): { status: null | number; stderr: string; stdout: string } {
+  const cwd = mkdtempSync(join(tmpdir(), "standards-guard-"));
+  if (marker !== undefined) {
+    mkdirSync(join(cwd, ".standards"), { recursive: true });
+    writeFileSync(join(cwd, ".standards", "blocked.json"), marker);
+  }
+  const result = spawnSync(process.execPath, ["-e", markerGuardScriptOf(file)], {
+    cwd,
+    encoding: "utf8",
+  });
+  return { status: result.status, stdout: result.stdout, stderr: result.stderr };
+}
+
 describe("seeded CI guards for alignment and the blocked marker", () => {
   const nodeWorkflows = [
     "reference/node/github-workflows-ci.yml",
@@ -2218,18 +2262,90 @@ describe("seeded CI guards for alignment and the blocked marker", () => {
     );
   });
 
-  it.each([...nodeWorkflows, "reference/rust/ci.yml"])(
-    "%s fails on a blocking agent marker",
-    (file) => {
-      const workflow = readFileSync(join(standardsRoot(), file), "utf8");
+  const guardedWorkflows = [...nodeWorkflows, "reference/rust/ci.yml"];
 
-      expect(workflow).toContain(".standards/blocked.json");
-      expect(workflow).toContain('"blocking"[[:space:]]*:[[:space:]]*true');
-      expect(workflow).toContain("exit 1");
-      // The marker guard follows the pending guard it complements.
-      expect(workflow.indexOf("test ! -f .standards/pending.json")).toBeLessThan(
-        workflow.indexOf("no blocking agent findings"),
-      );
-    },
-  );
+  it.each(guardedWorkflows)("%s places the marker guard where it can run", (file) => {
+    const workflow = readFileSync(join(standardsRoot(), file), "utf8");
+
+    expect(workflow).toContain(".standards/blocked.json");
+    // The marker guard follows the pending guard it complements.
+    expect(workflow.indexOf("test ! -f .standards/pending.json")).toBeLessThan(
+      workflow.indexOf("no blocking agent findings"),
+    );
+    // It parses the marker with `node`, so the toolchain has to be set up
+    // first — in the Rust workflow the guard sits below the node setup for
+    // exactly this reason.
+    expect(workflow.indexOf("actions/setup-node")).toBeLessThan(
+      workflow.indexOf("no blocking agent findings"),
+    );
+    // A line-oriented match is what let a multi-line marker through.
+    expect(workflow).not.toContain("[[:space:]]");
+  });
+
+  it.each(guardedWorkflows)("%s passes a repository without a marker", (file) => {
+    expect(runMarkerGuard(file).status).toBe(0);
+  });
+
+  it.each(guardedWorkflows)("%s passes a valid non-blocking marker", (file) => {
+    const result = runMarkerGuard(file, JSON.stringify({ ...VALID_MARKER, blocking: false }));
+
+    expect(result.status).toBe(0);
+    expect(result.stdout).toContain("non-blocking");
+  });
+
+  it.each(guardedWorkflows)("%s fails on a blocking marker", (file) => {
+    const result = runMarkerGuard(file, JSON.stringify(VALID_MARKER));
+
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain("could not validate its result");
+  });
+
+  it.each(guardedWorkflows)("%s fails on a blocking flag split across lines", (file) => {
+    // The exact shape the line-oriented `grep` missed: JSON permits a newline
+    // between the key and its value, and the marker still records a blocking
+    // result.
+    const marker = JSON.stringify(VALID_MARKER, undefined, 2).replace(
+      '"blocking": true',
+      '"blocking":\n    true',
+    );
+    expect(marker).not.toContain('"blocking": true');
+
+    const result = runMarkerGuard(file, marker);
+
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain("could not validate its result");
+  });
+
+  it.each(guardedWorkflows)("%s fails on a marker that is not valid JSON", (file) => {
+    const result = runMarkerGuard(file, '{ "blocking": tru\n');
+
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain("not valid JSON");
+  });
+
+  it.each(guardedWorkflows)("%s fails on a marker that violates the schema", (file) => {
+    const { retry, ...withoutRetry } = VALID_MARKER;
+    void retry;
+
+    const result = runMarkerGuard(file, JSON.stringify({ ...withoutRetry, blocking: false }));
+
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain("does not match the documented schema");
+    expect(result.stderr).toContain("retry");
+  });
+
+  it.each(guardedWorkflows)("%s fails on a marker that is not an object", (file) => {
+    const result = runMarkerGuard(file, "[]\n");
+
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain("not a JSON object");
+  });
+
+  it("validates every field the authoritative schema declares", () => {
+    const guard = markerGuardScriptOf("reference/node/github-workflows-ci.yml");
+
+    for (const field of Object.keys(VALID_MARKER)) {
+      expect(guard).toContain(field);
+    }
+  });
 });

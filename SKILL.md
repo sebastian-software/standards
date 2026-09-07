@@ -212,6 +212,11 @@ cannot cause a retry loop.
   `null` where the value could not be read.
 - `retry` states, in one sentence, what has to happen before the file is
   removed.
+- The seeded CI guard **parses** the marker rather than matching lines, and
+  fails closed on a file it cannot read: invalid JSON, or a marker that does not
+  satisfy the schema above, fails the pull request exactly as `blocking: true`
+  does. A guard whose purpose is to stop an unvalidated result must not be
+  satisfied by a marker it did not understand.
 
 The schema has one authoritative definition: `BlockedState` and
 `assertBlockedState` in `src/blocked.ts` of this package.

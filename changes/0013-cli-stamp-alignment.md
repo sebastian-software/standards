@@ -65,9 +65,13 @@ The CLI itself changes; three seeded or reference workflows change with it.
   and fails when its `currentVersion` differs from `.repometa.json#standards`.
   No `jq`: it is not guaranteed in the Forgejo node image.
 - **All three workflows**, `reference/rust/ci.yml` included, gain a
-  `.standards/blocked.json` guard right after the existing `pending.json` guard.
-  It fails when that file exists with `blocking: true`. It is plain `grep`, so
-  it needs neither `jq` nor `node_modules`.
+  `.standards/blocked.json` guard. It parses the marker with `node -e` and fails
+  on `blocking: true`, on a file that is not valid JSON, and on one that does not
+  satisfy the documented schema — a guard that exists to fail closed must not be
+  satisfied by a marker it could not read. It needs `node` on `PATH` but no
+  `node_modules`, and no `jq`, which is not guaranteed in the Forgejo node image.
+  In the Rust workflow it therefore sits below the `setup-node` step rather than
+  beside the `pending.json` guard.
 
 `.standards/blocked.json` itself is written by the agent, never by
 `standards apply`. Its schema, the meaning of `blocking`, and the rule for
@@ -106,8 +110,9 @@ deleting it are documented in `SKILL.md`; `BlockedState` and
    when they do not exist, so a repository that already has a `ci.yml` receives
    nothing from the mechanical part. Copy the steps in by hand:
 
-   - the `.standards/blocked.json` guard, immediately after the existing
-     `Guard: agent step not yet completed for this PR` step;
+   - the `.standards/blocked.json` guard, after the existing
+     `Guard: agent step not yet completed for this PR` step and after the step
+     that puts `node` on `PATH`, since the guard parses the marker with `node`;
    - the CLI/stamp alignment guard, immediately before the
      `pnpm exec standards check` step — after the install step, because it
      resolves the installed package, and late enough that a lint or test failure
@@ -119,7 +124,7 @@ deleting it are documented in `SKILL.md`; `BlockedState` and
    environment variable around them untouched. A Rust-only repository takes only
    the blocked-marker guard, from
    [`reference/rust/ci.yml`](../reference/rust/ci.yml), into its `standards`
-   job.
+   job, below the step that sets up node.
 
    A repository whose CI does not run `pnpm install --frozen-lockfile` before
    the drift lane has to add it, or the alignment guard cannot resolve the
