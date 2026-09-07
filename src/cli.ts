@@ -1,5 +1,4 @@
 import type { AgentName } from "./agent.js";
-import type { Finding } from "./check.js";
 import type { InitOptions, Visibility } from "./init.js";
 import type { Platform } from "./repo.js";
 
@@ -16,6 +15,13 @@ import {
 } from "./init.js";
 import { getPackageRoot, loadManifest } from "./manifest.js";
 import { detectScopes, readRepoMeta } from "./repo.js";
+import {
+  checkExitCode,
+  out,
+  reportFindingsJson,
+  reportFindingsText,
+  reportStaleCli,
+} from "./report.js";
 import { buildPendingPayload, writePending } from "./sync.js";
 
 const USAGE = `Usage: standards <command> [--cwd <dir>]
@@ -32,11 +38,11 @@ Commands:
           [--emit-pending <path>: write a JSON marker describing pending judgement work]
   sync    apply + run an agent (claude or codex) on the changelog entries that need judgement
           [--agent claude|codex] [--dry-run: print the agent prompt instead of running]
-`;
 
-function out(line: string): void {
-  process.stdout.write(`${line}\n`);
-}
+apply and sync write nothing and exit 3 when the installed CLI is older than the
+repository's stamp, because they cannot validate what they would change; pass
+--from-version to apply for the Renovate path, where that stamp is legitimate.
+`;
 
 function getCwd(args: string[]): string {
   const index = args.indexOf("--cwd");
@@ -179,6 +185,13 @@ function applyCommand(cwd: string, currentYear: number, args: string[]): void {
   const meta = readRepoMeta(cwd);
   const effectiveFromVersion = explicitFromVersion ?? meta.standards;
 
+  const current = loadManifest(getPackageRoot()).currentVersion;
+  // `--from-version` is the Renovate path, where the stamp is legitimately
+  // raised ahead of the `dlx`-resolved CLI and self-healing has to keep working.
+  if (explicitFromVersion === undefined && reportStaleCli(meta.standards, current)) {
+    return;
+  }
+
   const changes = runApply(cwd, currentYear, {
     preReadMeta: meta,
     explicitFromVersion: explicitFromVersion !== undefined,
@@ -189,54 +202,16 @@ function applyCommand(cwd: string, currentYear: number, args: string[]): void {
     writePending(cwd, emitPending, payload);
   }
 
+  reportApplyResult(changes);
+}
+
+function reportApplyResult(changes: ReturnType<typeof runApply>): void {
   if (changes.length === 0) {
     out("✓ Already up to date with org standards.");
     return;
   }
   reportApplied(changes);
   out(`Applied ${String(changes.length)} change(s). Run your checks and commit.`);
-}
-
-/**
- * Exit codes are the only signal the seeded CI can read: it calls
- * `standards check` without `--json`, so `3` (blocking) has to be
- * distinguishable from `1` (ordinary drift) without a parser. `2` stays
- * reserved for usage errors.
- */
-function checkExitCode(total: number, blocking: number): number {
-  if (blocking > 0) return 3;
-  return total > 0 ? 1 : 0;
-}
-
-function reportFindingsJson(findings: Finding[], blocking: number): void {
-  out(
-    JSON.stringify({
-      findings: findings.map((finding) => ({
-        kind: finding.kind,
-        path: finding.path,
-        detail: finding.detail,
-        blocking: finding.blocking,
-      })),
-      total: findings.length,
-      blocking,
-    }),
-  );
-}
-
-function reportFindingsText(findings: Finding[], blocking: number): void {
-  if (findings.length === 0) {
-    out("✓ Repository matches org standards.");
-    return;
-  }
-  for (const finding of findings) {
-    out(
-      `[${finding.kind}]${finding.blocking ? "[blocking]" : ""} ${finding.path}: ${finding.detail}`,
-    );
-  }
-  const suffix = blocking > 0 ? `, ${String(blocking)} blocking` : "";
-  out(
-    `${String(findings.length)} finding(s)${suffix}. Run \`standards apply\` for the mechanical part.`,
-  );
 }
 
 function checkCommand(cwd: string, currentYear: number, args: string[]): void {
@@ -263,6 +238,12 @@ function syncCommand(cwd: string, currentYear: number, args: string[]): void {
   const manifest = loadManifest(packageRoot);
   const meta = readRepoMeta(cwd);
   const fromVersion = meta.standards;
+
+  // Stop before `apply` and before the agent: a CLI that cannot validate this
+  // repository must not dispatch an agent to change it either.
+  if (reportStaleCli(fromVersion, manifest.currentVersion)) {
+    return;
+  }
 
   reportApplied(runApply(cwd, currentYear, { preReadMeta: meta }));
 
