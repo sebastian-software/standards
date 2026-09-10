@@ -268,6 +268,7 @@ function carriedOver(cwd: string, output: Writable): Partial<RepoMeta> {
   return {
     ...(existing.exceptions === undefined ? {} : { exceptions: existing.exceptions }),
     ...(existing.workspaces === undefined ? {} : { workspaces: existing.workspaces }),
+    ...(existing.readme === undefined ? {} : { readme: existing.readme }),
   };
 }
 

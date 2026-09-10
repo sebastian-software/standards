@@ -6,7 +6,8 @@ import type { RepoMeta } from "./repo.js";
 import type { SyncContext } from "./sync.js";
 
 import { upsertSection } from "./branding.js";
-import { writeRepoMeta } from "./repo.js";
+import { markdownThemerMigrationIssues } from "./readme.js";
+import { isMarkdownThemerReadme, writeRepoMeta } from "./repo.js";
 import {
   createContext,
   matchesPlatform,
@@ -61,6 +62,12 @@ function applySeeded(context: SyncContext, scope: ScopeSpec, dir: string): Chang
 
 function applySections(context: SyncContext, scope: ScopeSpec): Change[] {
   return scope.sections
+    .filter(
+      (section) =>
+        section.file !== "README.md" ||
+        section.marker !== "sebastian-software-branding" ||
+        !isMarkdownThemerReadme(context.meta),
+    )
     .filter((section) => matchesPlatform(section.platform, context.meta.platform))
     .flatMap((section) => {
       const existing = readTarget(context, section.file) ?? "";
@@ -108,6 +115,16 @@ export type ApplyOptions = {
   explicitFromVersion?: boolean;
 };
 
+function validateReadmeMigration(context: SyncContext): void {
+  if (!isMarkdownThemerReadme(context.meta)) return;
+  const issues = markdownThemerMigrationIssues(context.cwd);
+  if (issues.length > 0) {
+    throw new Error(
+      `Invalid markdown-themer README migration:\n${issues.map((issue) => `- ${issue.path}: ${issue.detail}`).join("\n")}`,
+    );
+  }
+}
+
 export function runApply(cwd: string, currentYear: number, options?: ApplyOptions): Change[] {
   const context = createContext(cwd, currentYear, options?.preReadMeta);
 
@@ -123,6 +140,8 @@ export function runApply(cwd: string, currentYear: number, options?: ApplyOption
   ) {
     return [];
   }
+
+  validateReadmeMigration(context);
 
   const changes: Change[] = [];
 
