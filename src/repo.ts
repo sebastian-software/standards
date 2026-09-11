@@ -8,7 +8,7 @@ export const REPO_META_FILE = ".repometa.json";
 export type Platform = "forgejo" | "github";
 
 export type ReadmeOwnership = {
-  owner: "markdown-themer";
+  owner: "markdown-themer" | "mdtheme";
 };
 
 export type RepoMeta = {
@@ -17,7 +17,7 @@ export type RepoMeta = {
   since: number;
   exceptions?: string[];
   platform?: Platform;
-  /** Explicitly delegates README branding to markdown-themer. */
+  /** Explicitly delegates README branding to a Markdown generator. */
   readme?: ReadmeOwnership;
   /**
    * Directories that carry their own package manifest, relative to the
@@ -27,8 +27,8 @@ export type RepoMeta = {
   workspaces?: string[];
 };
 
-export function isMarkdownThemerReadme(meta: RepoMeta): boolean {
-  return meta.readme?.owner === "markdown-themer";
+export function isGeneratedReadme(meta: RepoMeta): boolean {
+  return meta.readme?.owner === "markdown-themer" || meta.readme?.owner === "mdtheme";
 }
 
 export function isPlatform(value: unknown): value is Platform {
@@ -41,9 +41,9 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function assertReadmeOwnership(value: unknown): asserts value is ReadmeOwnership | undefined {
   if (value === undefined) return;
-  if (!isRecord(value) || value.owner !== "markdown-themer") {
+  if (!isRecord(value) || (value.owner !== "markdown-themer" && value.owner !== "mdtheme")) {
     throw new Error(
-      `Invalid ${REPO_META_FILE}: readme.owner must be "markdown-themer" when present.`,
+      `Invalid ${REPO_META_FILE}: readme.owner must be "mdtheme" or "markdown-themer" when present.`,
     );
   }
 }

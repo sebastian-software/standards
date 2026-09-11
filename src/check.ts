@@ -3,8 +3,8 @@ import { join } from "node:path";
 import type { ScopeSpec } from "./manifest.js";
 import type { SyncContext } from "./sync.js";
 
-import { markdownThemerMigrationIssues } from "./readme.js";
-import { isMarkdownThemerReadme } from "./repo.js";
+import { readmeMigrationIssues } from "./readme.js";
+import { isGeneratedReadme } from "./repo.js";
 import { createContext, matchesPlatform, readReference, readTarget, sectionState } from "./sync.js";
 
 export type Finding = {
@@ -72,7 +72,7 @@ function checkSections(context: SyncContext, scope: ScopeSpec): Finding[] {
       (section) =>
         section.file !== "README.md" ||
         section.marker !== "sebastian-software-branding" ||
-        !isMarkdownThemerReadme(context.meta),
+        !isGeneratedReadme(context.meta),
     )
     .filter((section) => matchesPlatform(section.platform, context.meta.platform))
     .flatMap((section) => {
@@ -150,9 +150,9 @@ export function runCheck(cwd: string, currentYear: number): Finding[] {
     });
   }
 
-  if (isMarkdownThemerReadme(context.meta)) {
+  if (isGeneratedReadme(context.meta)) {
     findings.push(
-      ...markdownThemerMigrationIssues(cwd).map((issue) => ({
+      ...readmeMigrationIssues(cwd, context.meta.readme?.owner).map((issue) => ({
         kind: "readme" as const,
         path: issue.path,
         detail: issue.detail,

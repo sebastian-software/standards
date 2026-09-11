@@ -12,6 +12,7 @@
     "oxlint",
     "pnpm",
     "repometa",
-    "themer"
+    "themer",
+    "mdtheme"
   ]
 }

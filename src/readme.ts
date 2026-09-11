@@ -1,6 +1,8 @@
 import { existsSync, lstatSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
+import type { ReadmeOwnership } from "./repo.js";
+
 export const MARKDOWN_THEMER_CONFIG_FILENAMES = [
   "markdown-themer.config.ts",
   "markdown-themer.config.mts",
@@ -58,13 +60,13 @@ function validReadmeScript(value: unknown, operation: "--check" | "--write"): bo
   return command === `markdown-themer ${operation}` || command === `node dist/cli.js ${operation}`;
 }
 
-function sourceIssues(cwd: string): MarkdownThemerMigrationIssue[] {
+function sourceIssues(cwd: string, owner: string): MarkdownThemerMigrationIssue[] {
   const issues: MarkdownThemerMigrationIssue[] = [];
   const source = join(cwd, "README.md.src");
   if (!regularFile(source)) {
     issues.push({
       path: "README.md.src",
-      detail: "markdown-themer source must be a regular non-symlink file at the repository root",
+      detail: `${owner} source must be a regular non-symlink file at the repository root`,
     });
   }
   const sourceContent = regularFile(source) ? readUtf8(source) : undefined;
@@ -78,7 +80,7 @@ function sourceIssues(cwd: string): MarkdownThemerMigrationIssue[] {
   return issues;
 }
 
-function outputIssues(cwd: string): MarkdownThemerMigrationIssue[] {
+function outputIssues(cwd: string, owner: string): MarkdownThemerMigrationIssue[] {
   const issues: MarkdownThemerMigrationIssue[] = [];
   const output = join(cwd, "README.md");
   const outputIsRegular = regularFile(output);
@@ -86,39 +88,42 @@ function outputIssues(cwd: string): MarkdownThemerMigrationIssue[] {
   if (!outputIsRegular) {
     issues.push({
       path: "README.md",
-      detail: "markdown-themer output must be a regular non-symlink file at the repository root",
+      detail: `${owner} output must be a regular non-symlink file at the repository root`,
     });
-  } else if (outputContent?.split(/\r?\n/u)[0] !== GENERATED_NOTICE) {
+  } else if (
+    outputContent?.split(/\r?\n/u)[0] !== GENERATED_NOTICE.replace("markdown-themer", owner)
+  ) {
     issues.push({
       path: "README.md",
-      detail:
-        "README.md is missing the markdown-themer generated-file notice; run markdown-themer --write",
+      detail: `README.md is missing the ${owner} generated-file notice; run ${owner} --write`,
     });
   }
   if (outputContent !== undefined && LEGACY_BRANDING_MARKER.test(outputContent)) {
     issues.push({
       path: "README.md",
-      detail:
-        "remove the legacy sebastian-software-branding marker; markdown-themer owns README branding",
+      detail: `remove the legacy sebastian-software-branding marker; ${owner} owns README branding`,
     });
   }
   return issues;
 }
 
-function configIssues(cwd: string): MarkdownThemerMigrationIssue[] {
-  const configs = MARKDOWN_THEMER_CONFIG_FILENAMES.filter((name) => existsSync(join(cwd, name)));
+function configIssues(cwd: string, owner: string): MarkdownThemerMigrationIssue[] {
+  const filenames =
+    owner === "mdtheme" ? ["mdtheme.yaml", "mdtheme.yml"] : MARKDOWN_THEMER_CONFIG_FILENAMES;
+  const configPattern = owner === "mdtheme" ? "mdtheme.yaml" : "markdown-themer.config.*";
+  const configs = filenames.filter((name) => existsSync(join(cwd, name)));
   if (configs.length === 0) {
     return [
       {
-        path: "markdown-themer.config.*",
-        detail: "exactly one supported markdown-themer config is required at the repository root",
+        path: configPattern,
+        detail: `exactly one supported ${owner} config is required at the repository root`,
       },
     ];
   }
   if (configs.length > 1) {
     return [
       {
-        path: "markdown-themer.config.*",
+        path: configPattern,
         detail: `multiple supported configs found (${configs.join(", ")}); keep exactly one`,
       },
     ];
@@ -127,8 +132,8 @@ function configIssues(cwd: string): MarkdownThemerMigrationIssue[] {
   if (config !== undefined && regularFile(join(cwd, config))) return [];
   return [
     {
-      path: config ?? "markdown-themer.config.*",
-      detail: "the markdown-themer config must be a regular non-symlink file",
+      path: config ?? configPattern,
+      detail: `the ${owner} config must be a regular non-symlink file`,
     },
   ];
 }
@@ -161,13 +166,15 @@ function packageIssues(cwd: string): MarkdownThemerMigrationIssue[] {
   return issues;
 }
 
-/**
- * Check the static prerequisites for a repository that delegates README
- * ownership to markdown-themer. This deliberately does not load the config:
- * configuration files are trusted executable code and standards must remain a
- * read-only checker at this boundary.
- */
-export function markdownThemerMigrationIssues(cwd: string): MarkdownThemerMigrationIssue[] {
-  const packageIssuesResult = packageIssues(cwd);
-  return [...sourceIssues(cwd), ...outputIssues(cwd), ...configIssues(cwd), ...packageIssuesResult];
+/** Check ownership prerequisites without loading or executing configuration. */
+export function readmeMigrationIssues(
+  cwd: string,
+  owner: ReadmeOwnership["owner"] = "markdown-themer",
+): MarkdownThemerMigrationIssue[] {
+  return [
+    ...sourceIssues(cwd, owner),
+    ...outputIssues(cwd, owner),
+    ...configIssues(cwd, owner),
+    ...(owner === "markdown-themer" ? packageIssues(cwd) : []),
+  ];
 }

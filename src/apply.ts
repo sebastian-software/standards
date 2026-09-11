@@ -6,8 +6,8 @@ import type { RepoMeta } from "./repo.js";
 import type { SyncContext } from "./sync.js";
 
 import { upsertSection } from "./branding.js";
-import { markdownThemerMigrationIssues } from "./readme.js";
-import { isMarkdownThemerReadme, writeRepoMeta } from "./repo.js";
+import { readmeMigrationIssues } from "./readme.js";
+import { isGeneratedReadme, writeRepoMeta } from "./repo.js";
 import {
   createContext,
   matchesPlatform,
@@ -66,7 +66,7 @@ function applySections(context: SyncContext, scope: ScopeSpec): Change[] {
       (section) =>
         section.file !== "README.md" ||
         section.marker !== "sebastian-software-branding" ||
-        !isMarkdownThemerReadme(context.meta),
+        !isGeneratedReadme(context.meta),
     )
     .filter((section) => matchesPlatform(section.platform, context.meta.platform))
     .flatMap((section) => {
@@ -116,11 +116,11 @@ export type ApplyOptions = {
 };
 
 function validateReadmeMigration(context: SyncContext): void {
-  if (!isMarkdownThemerReadme(context.meta)) return;
-  const issues = markdownThemerMigrationIssues(context.cwd);
+  if (!isGeneratedReadme(context.meta)) return;
+  const issues = readmeMigrationIssues(context.cwd, context.meta.readme?.owner);
   if (issues.length > 0) {
     throw new Error(
-      `Invalid markdown-themer README migration:\n${issues.map((issue) => `- ${issue.path}: ${issue.detail}`).join("\n")}`,
+      `Invalid ${context.meta.readme?.owner} README migration:\n${issues.map((issue) => `- ${issue.path}: ${issue.detail}`).join("\n")}`,
     );
   }
 }
