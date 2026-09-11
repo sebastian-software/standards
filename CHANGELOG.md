@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.11.0](https://github.com/sebastian-software/standards/compare/standards-v0.10.0...standards-v0.11.0) (2026-09-11)
+
+
+### Features
+
+* delegate generated README ownership to native mdtheme ([#81](https://github.com/sebastian-software/standards/issues/81)) ([0dc064a](https://github.com/sebastian-software/standards/commit/0dc064a35d835e940b9994df51b573ce624b3886))
+
 ## [0.10.0](https://github.com/sebastian-software/standards/compare/standards-v0.9.0...standards-v0.10.0) (2026-09-07)
 
 
