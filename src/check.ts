@@ -3,10 +3,12 @@ import { join } from "node:path";
 import type { ScopeSpec } from "./manifest.js";
 import type { SyncContext } from "./sync.js";
 
+import { readmeMigrationIssues } from "./readme.js";
+import { isGeneratedReadme } from "./repo.js";
 import { createContext, matchesPlatform, readReference, readTarget, sectionState } from "./sync.js";
 
 export type Finding = {
-  kind: "managed" | "section" | "seeded" | "stamp";
+  kind: "managed" | "readme" | "section" | "seeded" | "stamp";
   path: string;
   detail: string;
   /**
@@ -66,6 +68,12 @@ function checkSeeded(context: SyncContext, scope: ScopeSpec, dir: string): Findi
 
 function checkSections(context: SyncContext, scope: ScopeSpec): Finding[] {
   return scope.sections
+    .filter(
+      (section) =>
+        section.file !== "README.md" ||
+        section.marker !== "sebastian-software-branding" ||
+        !isGeneratedReadme(context.meta),
+    )
     .filter((section) => matchesPlatform(section.platform, context.meta.platform))
     .flatMap((section) => {
       const state = sectionState(context, section);
@@ -140,6 +148,17 @@ export function runCheck(cwd: string, currentYear: number): Finding[] {
         "platform is missing; run `standards init --force --platform <github|forgejo>` to set it",
       blocking: false,
     });
+  }
+
+  if (isGeneratedReadme(context.meta)) {
+    findings.push(
+      ...readmeMigrationIssues(cwd, context.meta.readme?.owner).map((issue) => ({
+        kind: "readme" as const,
+        path: issue.path,
+        detail: issue.detail,
+        blocking: false,
+      })),
+    );
   }
 
   for (const unit of context.units) {
