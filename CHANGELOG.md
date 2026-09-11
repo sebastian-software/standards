@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.11.1](https://github.com/sebastian-software/standards/compare/standards-v0.11.0...standards-v0.11.1) (2026-09-11)
+
+
+### Bug Fixes
+
+* **docs:** document native mdtheme badge integration ([#83](https://github.com/sebastian-software/standards/issues/83)) ([8c76402](https://github.com/sebastian-software/standards/commit/8c764026ede286937b86a826c8d08451a2187fc7))
+
 ## [0.11.0](https://github.com/sebastian-software/standards/compare/standards-v0.10.0...standards-v0.11.0) (2026-09-11)
 
 
