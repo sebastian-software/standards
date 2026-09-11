@@ -167,3 +167,8 @@ exempting them. Renovate updates both kinds of pin; a tag is not a pin. The
 [`check-action-pins`](../../.github/actions/README.md#check-action-pins)
 composite action enforces exactly that rule and replaces the per-repository
 copies of the script.
+
+## Generated READMEs
+
+See the [native mdtheme reference](../mdtheme/README.md) for project-owned CLI
+pins, CI checks, and shared badge placement. No Node manifest is needed.
