@@ -1,6 +1,7 @@
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import {
+  chmodSync,
   existsSync,
   mkdirSync,
   mkdtempSync,
@@ -20,7 +21,7 @@ import type { Finding } from "../src/check.js";
 import { runApply } from "../src/apply.js";
 import { assertBlockedState } from "../src/blocked.js";
 import { copyrightYears, renderTemplate, upsertSection } from "../src/branding.js";
-import { runCheck } from "../src/check.js";
+import { runCheck, stampFinding } from "../src/check.js";
 import { initCommand } from "../src/cli.js";
 import {
   detectFirstCommitYear,
@@ -35,6 +36,7 @@ import {
 } from "../src/init.js";
 // Aliased: several tests destructure `getPackageRoot` from a dynamic import.
 import { loadManifest, getPackageRoot as standardsRoot } from "../src/manifest.js";
+import { hasStandardsLane, inspectPin } from "../src/pin.js";
 import { isGeneratedReadme, readRepoMeta } from "../src/repo.js";
 import {
   assertPendingPayload,
@@ -91,9 +93,22 @@ describe("upsertSection", () => {
   });
 });
 
+/** The CLI's own package name, as `loadCliName` reads it from `package.json`. */
+const CLI_NAME = "@sebastian-software/standards";
+
+/** A bare exact version literal, the only pin shape `standards check` accepts. */
+const EXACT_PIN = "0.11.1";
+
+/**
+ * The `package.json` every node fixture writes. A seeded `ci.yml` is a
+ * standards lane, so a fixture that declared no pin would acquire a blocking
+ * `pin` finding in every test that has nothing to do with it.
+ */
+const PINNED_PACKAGE_JSON = `${JSON.stringify({ devDependencies: { [CLI_NAME]: EXACT_PIN } }, undefined, 2)}\n`;
+
 function createFixtureRepo(): string {
   const cwd = mkdtempSync(join(tmpdir(), "standards-test-"));
-  writeFileSync(join(cwd, "package.json"), "{}\n");
+  writeFileSync(join(cwd, "package.json"), PINNED_PACKAGE_JSON);
   writeFileSync(join(cwd, "README.md"), "# Demo\n");
   writeFileSync(
     join(cwd, ".repometa.json"),
@@ -118,6 +133,7 @@ function configureMarkdownThemer(cwd: string): void {
           "readme:check": "markdown-themer --check",
           "agent:check": "pnpm readme:check",
         },
+        devDependencies: { [CLI_NAME]: EXACT_PIN },
       },
       undefined,
       2,
@@ -586,7 +602,7 @@ describe("nested node workspaces", () => {
     const cwd = createRustFixtureRepo();
     for (const directory of directories) {
       mkdirSync(join(cwd, directory), { recursive: true });
-      writeFileSync(join(cwd, directory, "package.json"), "{}\n");
+      writeFileSync(join(cwd, directory, "package.json"), PINNED_PACKAGE_JSON);
     }
     writeFileSync(
       join(cwd, ".repometa.json"),
@@ -619,7 +635,7 @@ describe("nested node workspaces", () => {
       expect(existsSync(join(cwd, "node", file))).toBe(false);
     }
     expect(existsSync(join(cwd, "SECURITY.md"))).toBe(true);
-    expect(readFileSync(join(cwd, "node", "package.json"), "utf8")).toBe("{}\n");
+    expect(readFileSync(join(cwd, "node", "package.json"), "utf8")).toBe(PINNED_PACKAGE_JSON);
   });
 
   it("reports a workspace file with its full path", () => {
@@ -724,7 +740,7 @@ describe("nested node workspaces", () => {
 
     expect(existsSync(join(cwd, "node", "rustfmt.toml"))).toBe(false);
     expect(buildPayload(cwd, 8)?.changes.map((entry) => entry.version)).toStrictEqual([
-      9, 10, 11, 12, 13,
+      9, 10, 11, 12, 13, 14,
     ]);
   });
 
@@ -1004,10 +1020,10 @@ describe("selectChanges and buildPrompt", () => {
       1, 2, 3, 7, 8, 9, 10, 11, 12,
     ]);
     expect(selectChanges(root, 1, ["common", "node"]).map((entry) => entry.version)).toStrictEqual([
-      2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13,
+      2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14,
     ]);
     expect(selectChanges(root, 8, ["common", "node"]).map((entry) => entry.version)).toStrictEqual([
-      9, 10, 11, 12, 13,
+      9, 10, 11, 12, 13, 14,
     ]);
     // 0009 is the first entry a rust-only repository ever receives.
     expect(selectChanges(root, 0, ["rust"]).map((entry) => entry.version)).toStrictEqual([
@@ -1151,6 +1167,54 @@ describe("selectChanges and buildPrompt", () => {
 
     expect(prompt).not.toContain("Pre-flight: align the CLI");
     expect(prompt).not.toContain("9.9.9");
+  });
+
+  const pinShapeHeading = "## Declare the standards CLI as an exact version literal";
+
+  it("renders the pin-shape rule for an inline run, which sync dispatches", async () => {
+    const { buildPrompt } = await import("../src/agent.js");
+    const { selectChanges } = await import("../src/changes.js");
+    const { getPackageRoot } = await import("../src/manifest.js");
+    const root = getPackageRoot();
+
+    const prompt = buildPrompt({
+      packageRoot: root,
+      meta: { standards: 1, visibility: "oss", since: 2020 },
+      scopeNames: ["common", "node"],
+      fromVersion: 0,
+      toVersion: 14,
+      changes: selectChanges(root, 0, ["common", "node"]),
+    });
+
+    // The SKILL text embedded above cannot satisfy the assertion on its own.
+    expect(readFileSync(join(root, "SKILL.md"), "utf8")).not.toContain(pinShapeHeading);
+    expect(prompt).toContain(pinShapeHeading);
+    expect(prompt.indexOf(pinShapeHeading)).toBeLessThan(
+      prompt.indexOf("## Changelog entries to execute"),
+    );
+    // The version pre-flight stays specific to the pending-file run.
+    expect(prompt).not.toContain("Pre-flight: align the CLI");
+  });
+
+  it("renders the pin-shape rule for a pending-file run", async () => {
+    const { buildPrompt } = await import("../src/agent.js");
+    const { selectChanges } = await import("../src/changes.js");
+    const { getPackageRoot } = await import("../src/manifest.js");
+    const root = getPackageRoot();
+
+    const prompt = buildPrompt({
+      packageRoot: root,
+      meta: { standards: 1, visibility: "oss", since: 2020 },
+      scopeNames: ["common", "node"],
+      fromVersion: 0,
+      toVersion: 14,
+      cliVersion: "9.9.9",
+      changes: selectChanges(root, 0, ["common", "node"]),
+      changesSource: "pending-file",
+    });
+
+    expect(prompt).toContain(pinShapeHeading);
+    expect(prompt).toContain("Pre-flight: align the CLI with the version stamp");
   });
 
   it("instructs the agent to write and clear the blocked marker in both modes", async () => {
@@ -1698,7 +1762,7 @@ describe("detectPlatform", () => {
 
 function createPlatformFixture(platform: "forgejo" | "github" | undefined): string {
   const cwd = mkdtempSync(join(tmpdir(), "standards-platform-"));
-  writeFileSync(join(cwd, "package.json"), "{}\n");
+  writeFileSync(join(cwd, "package.json"), PINNED_PACKAGE_JSON);
   writeFileSync(join(cwd, "README.md"), "# Demo\n");
   const meta: Record<string, unknown> = { standards: 0, visibility: "oss", since: 2020 };
   if (platform !== undefined) meta.platform = platform;
@@ -2153,6 +2217,57 @@ function stampFindingOf(cwd: string): Finding {
   return unwrap(runCheck(cwd, YEAR).find((finding) => finding.kind === "stamp"));
 }
 
+/** Counted by kind, never by total: a fixture may carry unrelated drift. */
+function pinFindingsOf(cwd: string): Finding[] {
+  return runCheck(cwd, YEAR).filter((finding) => finding.kind === "pin");
+}
+
+function declaring(specifier: string, field = "devDependencies"): Record<string, unknown> {
+  return { [field]: { [CLI_NAME]: specifier } };
+}
+
+function writePackageJson(cwd: string, dir: string, manifest: Record<string, unknown>): void {
+  mkdirSync(join(cwd, dir), { recursive: true });
+  writeFileSync(join(cwd, dir, "package.json"), `${JSON.stringify(manifest, undefined, 2)}\n`);
+}
+
+function writeWorkflow(cwd: string, path: string, content: string): void {
+  mkdirSync(join(cwd, path, ".."), { recursive: true });
+  writeFileSync(join(cwd, path), content);
+}
+
+const LANE_WORKFLOW = "steps:\n  - run: pnpm exec standards check\n";
+
+function patchRepoMeta(cwd: string, patch: Record<string, unknown>): void {
+  const raw: unknown = JSON.parse(readFileSync(join(cwd, ".repometa.json"), "utf8"));
+  const meta = isRecord(raw) ? raw : {};
+  writeFileSync(
+    join(cwd, ".repometa.json"),
+    `${JSON.stringify({ ...meta, ...patch }, undefined, 2)}\n`,
+  );
+}
+
+/**
+ * A fully applied, current fixture whose root `package.json` is replaced by
+ * `manifest`. Its seeded `ci.yml` runs `pnpm exec standards check`, so it has a
+ * standards lane.
+ */
+function createDeclaringFixture(manifest: Record<string, unknown>): string {
+  const cwd = createFixtureRepo();
+  runApply(cwd, YEAR);
+  writePackageJson(cwd, "", manifest);
+  return cwd;
+}
+
+/** A Rust root without a `package.json`, declaring `workspaces`. */
+function createWorkspaceFixture(workspaces: string[]): string {
+  const cwd = createRustFixtureRepo();
+  patchRepoMeta(cwd, { workspaces });
+  return cwd;
+}
+
+const RUNNING_AS_ROOT = process.getuid?.() === 0;
+
 describe("CLI and stamp alignment", () => {
   it("reports a repository behind the installed CLI as non-blocking drift", () => {
     const cwd = createStampedFixture(currentStandardsVersion() - 1);
@@ -2281,6 +2396,362 @@ describe("CLI and stamp alignment", () => {
 });
 
 /**
+ * The second member of the alignment class: the shape of the
+ * `@sebastian-software/standards` pin. `package.json` is neither managed nor
+ * seeded, so the finding is blocking and `apply` cannot repair it.
+ */
+describe("standards CLI pin", () => {
+  it("reports a non-exact declaration once, at the package.json that declares it", () => {
+    const cwd = createDeclaringFixture(declaring("^0.2.0"));
+
+    const findings = pinFindingsOf(cwd);
+
+    expect(findings).toHaveLength(1);
+    expect(findings[0]).toMatchObject({ kind: "pin", path: "package.json", blocking: true });
+    expect(findings[0]?.detail).toContain("`^0.2.0`");
+  });
+
+  it("reports a missing declaration at the root package.json when a standards lane exists", () => {
+    const cwd = createDeclaringFixture({});
+
+    const findings = pinFindingsOf(cwd);
+
+    expect(hasStandardsLane(cwd)).toBe(true);
+    expect(findings).toHaveLength(1);
+    expect(findings[0]).toMatchObject({ kind: "pin", path: "package.json", blocking: true });
+    expect(findings[0]?.detail).toContain("`standards apply` does not repair this");
+  });
+
+  it("reports a missing declaration at the first examined workspace without a root package.json", () => {
+    const cwd = createWorkspaceFixture(["node", "tools"]);
+    writePackageJson(cwd, "node", {});
+    writePackageJson(cwd, "tools", {});
+    writeWorkflow(cwd, ".github/workflows/ci.yml", LANE_WORKFLOW);
+
+    const findings = pinFindingsOf(cwd);
+
+    expect(findings).toHaveLength(1);
+    expect(findings[0]?.path).toBe(join("node", "package.json"));
+  });
+
+  it("stays silent about a missing declaration without a standards lane", () => {
+    const root = createFixtureRepo();
+    writePackageJson(root, "", {});
+    const workspace = createWorkspaceFixture(["node"]);
+    writePackageJson(workspace, "node", {});
+
+    expect(hasStandardsLane(root)).toBe(false);
+    expect(pinFindingsOf(root)).toStrictEqual([]);
+    expect(hasStandardsLane(workspace)).toBe(false);
+    expect(pinFindingsOf(workspace)).toStrictEqual([]);
+  });
+
+  it("does not ask a Rust project with a Node build harness to declare the CLI", () => {
+    // A Rust crate whose package.json only drives a wasm build, and whose
+    // workflow never mentions standards.
+    const cwd = createRustFixtureRepo('[package]\nname = "demo"\nversion = "0.1.0"\n');
+    writePackageJson(cwd, "", {
+      name: "demo-wasm",
+      private: true,
+      scripts: { build: "wasm-pack build" },
+      devDependencies: { typescript: "5.9.3" },
+    });
+    writeWorkflow(
+      cwd,
+      ".github/workflows/ci.yml",
+      "steps:\n  - run: cargo test --workspace\n  - run: pnpm build\n",
+    );
+
+    expect(hasStandardsLane(cwd)).toBe(false);
+    expect(pinFindingsOf(cwd)).toStrictEqual([]);
+  });
+
+  it.each([
+    ["pnpm exec standards check", "steps:\n  - run: pnpm exec standards check\n"],
+    ["an unpinned dlx", "steps:\n  - run: pnpm dlx @sebastian-software/standards check\n"],
+    ["a pinned dlx", "steps:\n  - run: pnpm dlx @sebastian-software/standards@0.11.1 check\n"],
+  ])("detects a standards lane from %s", (_form, content) => {
+    const cwd = createFixtureRepo();
+    writeWorkflow(cwd, ".github/workflows/ci.yml", content);
+
+    expect(hasStandardsLane(cwd)).toBe(true);
+  });
+
+  it("detects a standards lane from a workflow that carries only the alignment guard", () => {
+    const cwd = createFixtureRepo();
+    const guard = alignmentGuardScriptOf("reference/node/github-workflows-ci.yml");
+    writeWorkflow(
+      cwd,
+      ".github/workflows/guard.yml",
+      `steps:\n  - name: guard\n    run: |\n      node -p "${guard}"\n`,
+    );
+
+    expect(hasStandardsLane(cwd)).toBe(true);
+  });
+
+  it("finds no standards lane in a workflow directory without one, or without the directory", () => {
+    const withoutLane = createFixtureRepo();
+    writeWorkflow(withoutLane, ".github/workflows/ci.yml", "steps:\n  - run: pnpm test\n");
+    const withoutDirectory = createFixtureRepo();
+
+    expect(hasStandardsLane(withoutLane)).toBe(false);
+    expect(hasStandardsLane(withoutDirectory)).toBe(false);
+  });
+
+  it("reports a non-exact declaration even without a standards lane", () => {
+    const cwd = createFixtureRepo();
+    writePackageJson(cwd, "", declaring("^0.2.0"));
+
+    expect(hasStandardsLane(cwd)).toBe(false);
+    expect(pinFindingsOf(cwd)).toHaveLength(1);
+  });
+
+  it("searches every *.yml and *.yaml file in both workflow directories", () => {
+    const forgejo = createFixtureRepo();
+    writeWorkflow(forgejo, ".forgejo/workflows/release.yaml", LANE_WORKFLOW);
+    const github = createFixtureRepo();
+    writeWorkflow(github, ".github/workflows/lint.yml", LANE_WORKFLOW);
+    const notWorkflow = createFixtureRepo();
+    writeWorkflow(notWorkflow, ".github/workflows/notes.md", LANE_WORKFLOW);
+
+    expect(hasStandardsLane(forgejo)).toBe(true);
+    expect(hasStandardsLane(github)).toBe(true);
+    expect(hasStandardsLane(notWorkflow)).toBe(false);
+  });
+
+  it.skipIf(RUNNING_AS_ROOT)("treats an unreadable workflow file or directory as no lane", () => {
+    const unreadableFile = createFixtureRepo();
+    writePackageJson(unreadableFile, "", {});
+    writeWorkflow(unreadableFile, ".github/workflows/ci.yml", LANE_WORKFLOW);
+    chmodSync(join(unreadableFile, ".github/workflows/ci.yml"), 0o000);
+    const unreadableDirectory = createFixtureRepo();
+    writePackageJson(unreadableDirectory, "", {});
+    writeWorkflow(unreadableDirectory, ".forgejo/workflows/ci.yml", LANE_WORKFLOW);
+    chmodSync(join(unreadableDirectory, ".forgejo/workflows"), 0o000);
+
+    try {
+      expect(hasStandardsLane(unreadableFile)).toBe(false);
+      expect(hasStandardsLane(unreadableDirectory)).toBe(false);
+      expect(
+        inspectPin(unreadableDirectory, readRepoMeta(unreadableDirectory), CLI_NAME).findings,
+      ).toStrictEqual([]);
+    } finally {
+      chmodSync(join(unreadableFile, ".github/workflows/ci.yml"), 0o644);
+      chmodSync(join(unreadableDirectory, ".forgejo/workflows"), 0o755);
+    }
+  });
+
+  it("evaluates no pin in a rust-only repository or for a package.json that is not an object", () => {
+    const rustOnly = createRustFixtureRepo();
+    writeWorkflow(rustOnly, ".github/workflows/ci.yml", LANE_WORKFLOW);
+    const invalidJson = createFixtureRepo();
+    writeFileSync(join(invalidJson, "package.json"), "{ not json\n");
+    writeWorkflow(invalidJson, ".github/workflows/ci.yml", LANE_WORKFLOW);
+    const notAnObject = createFixtureRepo();
+    writeFileSync(join(notAnObject, "package.json"), "[]\n");
+    writeWorkflow(notAnObject, ".github/workflows/ci.yml", LANE_WORKFLOW);
+
+    expect(pinFindingsOf(rustOnly)).toStrictEqual([]);
+    for (const cwd of [invalidJson, notAnObject]) {
+      expect(inspectPin(cwd, readRepoMeta(cwd), CLI_NAME)).toStrictEqual({
+        findings: [],
+        displaySpecifier: undefined,
+      });
+    }
+  });
+
+  it.skipIf(RUNNING_AS_ROOT)("evaluates no pin for an unreadable package.json", () => {
+    const cwd = createFixtureRepo();
+    writeWorkflow(cwd, ".github/workflows/ci.yml", LANE_WORKFLOW);
+    chmodSync(join(cwd, "package.json"), 0o000);
+
+    try {
+      expect(inspectPin(cwd, readRepoMeta(cwd), CLI_NAME).findings).toStrictEqual([]);
+    } finally {
+      chmodSync(join(cwd, "package.json"), 0o644);
+    }
+  });
+
+  it("evaluates no pin when the workspace metadata is invalid, and leaves the throw to check", () => {
+    // A workspace symlinked out of the checkout passes the lexical validation of
+    // `readRepoMeta`; `workspaceDirs` is what rejects it.
+    const cwd = createDeclaringFixture(declaring("^0.2.0"));
+    const outside = mkdtempSync(join(tmpdir(), "standards-outside-"));
+    writePackageJson(outside, "", declaring("^0.3.0"));
+    patchRepoMeta(cwd, { workspaces: ["node"] });
+    symlinkSync(outside, join(cwd, "node"), "dir");
+
+    expect(inspectPin(cwd, readRepoMeta(cwd), CLI_NAME)).toStrictEqual({
+      findings: [],
+      displaySpecifier: undefined,
+    });
+    expect(() => runCheck(cwd, YEAR)).toThrow(/outside the repository/u);
+  });
+
+  it("blocks check with exit 3 for a range pin and for a missing declaration", () => {
+    const range = createDeclaringFixture(declaring("^0.2.0"));
+    const missing = createDeclaringFixture({});
+
+    expect(pinFindingsOf(range).map((finding) => finding.blocking)).toStrictEqual([true]);
+    expect(pinFindingsOf(missing).map((finding) => finding.blocking)).toStrictEqual([true]);
+    expect(runCli(["check", "--cwd", range]).status).toBe(3);
+    expect(runCli(["check", "--cwd", missing]).status).toBe(3);
+  });
+
+  it("says apply does not repair the pin and names the required form, not a range", () => {
+    const shape = unwrap(pinFindingsOf(createDeclaringFixture(declaring("^0.2.0")))[0]).detail;
+    const absent = unwrap(pinFindingsOf(createDeclaringFixture({}))[0]).detail;
+
+    expect(shape).toContain("not a bare exact version literal");
+    for (const detail of [shape, absent]) {
+      expect(detail).toContain("bare exact version literal");
+      expect(detail).toContain("`standards apply` does not repair this");
+      expect(detail).toContain("refresh the lockfile");
+      expect(detail).not.toContain("range");
+    }
+  });
+
+  it.each(["0.11.1", "1.2.3-rc.1", "1.2.3+build.5"])(
+    "accepts the exact version literal %s",
+    (specifier) => {
+      expect(pinFindingsOf(createDeclaringFixture(declaring(specifier)))).toStrictEqual([]);
+    },
+  );
+
+  it.each([
+    "^0.2.0",
+    "~0.2.0",
+    "0.2.x",
+    "*",
+    "latest",
+    "=0.11.1",
+    "01.2.3",
+    "npm:other@1.0.0",
+    "npm:@sebastian-software/standards@0.11.1",
+    "git+https://github.com/x/y.git",
+    "file:../x",
+    "link:../x",
+    "workspace:*",
+    "catalog:",
+  ])("reports the non-exact specifier %s exactly once", (specifier) => {
+    expect(pinFindingsOf(createDeclaringFixture(declaring(specifier)))).toHaveLength(1);
+  });
+
+  it("reports a URL specifier by its scheme only, so a credential never reaches a log", () => {
+    const cwd = createDeclaringFixture(declaring("git+ssh://user:s3cret@host/repo.git"));
+
+    const detail = unwrap(pinFindingsOf(cwd)[0]).detail;
+    const json = runCli(["check", "--cwd", cwd, "--json"]);
+
+    expect(detail).toContain("git+ssh:");
+    expect(detail).not.toContain("s3cret");
+    expect(json.stdout).toContain("git+ssh:");
+    expect(json.stdout).not.toContain("s3cret");
+  });
+
+  it("replaces control characters in a displayed specifier, so it cannot inject a CI annotation", () => {
+    const cwd = createDeclaringFixture(declaring("0.11.1\n::error::injected"));
+
+    const detail = unwrap(pinFindingsOf(cwd)[0]).detail;
+    const text = runCli(["check", "--cwd", cwd]);
+
+    expect(detail).not.toContain("\n");
+    expect(detail).toContain("?::error::injected");
+    expect(text.status).toBe(3);
+    expect(text.stdout.split("\n").filter((line) => line.startsWith("::error::"))).toStrictEqual(
+      [],
+    );
+  });
+
+  it("names the non-exact declaration of the root before an exact one beside it", () => {
+    const cwd = createDeclaringFixture({
+      devDependencies: { [CLI_NAME]: EXACT_PIN },
+      dependencies: { [CLI_NAME]: "^0.2.0" },
+    });
+
+    expect(inspectPin(cwd, readRepoMeta(cwd), CLI_NAME).displaySpecifier).toBe("^0.2.0");
+    expect(pinFindingsOf(cwd).map((finding) => finding.path)).toStrictEqual(["package.json"]);
+  });
+
+  it("names the root's specifier before a workspace's, and reports only the range unit", () => {
+    const cwd = createDeclaringFixture(declaring(EXACT_PIN));
+    patchRepoMeta(cwd, { workspaces: ["packages/tool"] });
+    writePackageJson(cwd, "packages/tool", declaring("^0.2.0"));
+
+    expect(inspectPin(cwd, readRepoMeta(cwd), CLI_NAME).displaySpecifier).toBe(EXACT_PIN);
+    expect(pinFindingsOf(cwd).map((finding) => finding.path)).toStrictEqual([
+      join("packages/tool", "package.json"),
+    ]);
+  });
+
+  it("names a workspace's specifier when only the workspace declares the CLI", () => {
+    const cwd = createDeclaringFixture({});
+    patchRepoMeta(cwd, { workspaces: ["packages/tool"] });
+    writePackageJson(cwd, "packages/tool", declaring("^0.3.0"));
+
+    expect(inspectPin(cwd, readRepoMeta(cwd), CLI_NAME).displaySpecifier).toBe("^0.3.0");
+  });
+
+  it("exempts a repository in which any examined package.json is the CLI itself", () => {
+    const rootIsCli = createDeclaringFixture({ name: CLI_NAME, version: EXACT_PIN });
+    patchRepoMeta(rootIsCli, { workspaces: ["packages/app"] });
+    writePackageJson(rootIsCli, "packages/app", declaring("workspace:*"));
+    const workspaceIsCli = createDeclaringFixture(declaring("workspace:*"));
+    patchRepoMeta(workspaceIsCli, { workspaces: ["packages/standards"] });
+    writePackageJson(workspaceIsCli, "packages/standards", { name: CLI_NAME });
+
+    expect(pinFindingsOf(rootIsCli)).toStrictEqual([]);
+    expect(pinFindingsOf(workspaceIsCli)).toStrictEqual([]);
+  });
+
+  it.each(["dependencies", "devDependencies"])("examines a declaration in %s", (field) => {
+    expect(pinFindingsOf(createDeclaringFixture(declaring("^0.2.0", field)))).toHaveLength(1);
+    // An exact declaration in either field also satisfies the absent member.
+    expect(pinFindingsOf(createDeclaringFixture(declaring(EXACT_PIN, field)))).toStrictEqual([]);
+  });
+
+  it("examines a nested workspace package.json", () => {
+    const cwd = createWorkspaceFixture(["packages/tool"]);
+    writePackageJson(cwd, "", {});
+    writePackageJson(cwd, "packages/tool", declaring(EXACT_PIN));
+    writeWorkflow(cwd, ".github/workflows/ci.yml", LANE_WORKFLOW);
+
+    expect(pinFindingsOf(cwd)).toStrictEqual([]);
+
+    writePackageJson(cwd, "packages/tool", declaring("^0.2.0"));
+    const findings = pinFindingsOf(cwd);
+
+    expect(findings).toHaveLength(1);
+    expect(findings[0]?.path).toBe(join("packages/tool", "package.json"));
+  });
+
+  it("names a non-exact declared specifier in the CLI-behind stamp detail", () => {
+    const current = currentStandardsVersion();
+    const range = unwrap(stampFinding(current + 1, current, "^0.2.0")).detail;
+    const exact = unwrap(stampFinding(current + 1, current, EXACT_PIN)).detail;
+
+    expect(range).toContain("The declared specifier is `^0.2.0`");
+    expect(range).toContain("bare exact version literal");
+    expect(exact).not.toContain("The declared specifier");
+    expect(exact).toBe(unwrap(stampFinding(current + 1, current, undefined)).detail);
+    for (const detail of [range, exact]) {
+      expect(detail).toContain("the installed CLI is behind the repository");
+      expect(detail).toContain("refresh the lockfile");
+    }
+
+    // The repository-behind direction keeps its wording whatever is declared.
+    const behind = unwrap(stampFinding(current - 1, current, "^0.2.0")).detail;
+    expect(behind).toBe(unwrap(stampFinding(current - 1, current, undefined)).detail);
+    expect(behind).toContain("the repository is behind the installed CLI");
+
+    // `check` threads the declared specifier through.
+    const cwd = createStampedFixture(current + 1);
+    writePackageJson(cwd, "", declaring("^0.2.0"));
+    expect(stampFindingOf(cwd).detail).toBe(range);
+  });
+});
+
+/**
  * The guard that stops a stale CLI from writing made `apply` and `sync` silent
  * rather than loud: both used to finish with exit `0` and a success line for a
  * repository `standards check` refuses with exit `3`. They now speak `check`'s
@@ -2353,6 +2824,79 @@ describe("stale CLI in apply and sync", () => {
     expect(result.status).toBe(0);
     expect(result.stdout).not.toContain(directional);
     expect(readStamp(cwd)).toBe(current);
+  });
+
+  it("reports a range pin from apply and sync in check's own wording", () => {
+    const stamp = currentStandardsVersion() + 1;
+    const cwd = createStampedFixture(stamp);
+    writePackageJson(cwd, "", declaring("^0.2.0"));
+    const drifted = "{}\n";
+    writeFileSync(join(cwd, ".oxfmtrc.json"), drifted);
+    const detail = stampFindingOf(cwd).detail;
+
+    const applied = runCli(["apply", "--cwd", cwd]);
+    const synced = runCli(["sync", "--cwd", cwd, "--dry-run"]);
+
+    expect(detail).toContain("The declared specifier is `^0.2.0`");
+    expect(applied.status).toBe(3);
+    expect(applied.stdout).toContain(detail);
+    expect(synced.status).toBe(3);
+    expect(synced.stdout).toContain(detail);
+    // A range pin does not lift the stale-CLI write refusal.
+    expect(readFileSync(join(cwd, ".oxfmtrc.json"), "utf8")).toBe(drifted);
+    expect(readStamp(cwd)).toBe(stamp);
+  });
+
+  it("keeps a credential in a URL pin out of the apply and sync output", () => {
+    const cwd = createStampedFixture(currentStandardsVersion() + 1);
+    writePackageJson(cwd, "", declaring("git+ssh://user:s3cret@host/repo.git"));
+
+    for (const result of [
+      runCli(["apply", "--cwd", cwd]),
+      runCli(["sync", "--cwd", cwd, "--dry-run"]),
+    ]) {
+      expect(result.status).toBe(3);
+      expect(result.stdout).toContain("git+ssh:");
+      expect(`${result.stdout}${result.stderr}`).not.toContain("s3cret");
+    }
+  });
+
+  it("reports the stamp finding, not a thrown message, when a workspace escapes the repository", () => {
+    // Pin inspection must never turn the blocking exit 3 into a thrown exit 1.
+    const cwd = createStampedFixture(currentStandardsVersion() + 1);
+    const outside = mkdtempSync(join(tmpdir(), "standards-outside-"));
+    writePackageJson(outside, "", declaring("^0.2.0"));
+    patchRepoMeta(cwd, { workspaces: ["node"] });
+    symlinkSync(outside, join(cwd, "node"), "dir");
+
+    for (const result of [
+      runCli(["apply", "--cwd", cwd]),
+      runCli(["sync", "--cwd", cwd, "--dry-run"]),
+    ]) {
+      expect(result.status).toBe(3);
+      expect(result.stdout).toContain(directional);
+      expect(result.stderr).not.toContain("outside the repository");
+    }
+    expect(existsSync(join(outside, ".oxfmtrc.json"))).toBe(false);
+  });
+
+  it("still writes when the only blocking finding is the pin", () => {
+    // The stamp member refuses to write (see "reports the blocking mismatch
+    // from apply and writes nothing"); the pin member alone does not.
+    const cwd = createDeclaringFixture(declaring("^0.2.0"));
+    writeFileSync(join(cwd, ".oxfmtrc.json"), "{}\n");
+
+    const applied = runCli(["apply", "--cwd", cwd]);
+
+    expect(applied.status).toBe(0);
+    expect(applied.stdout).not.toContain(directional);
+    expect(readFileSync(join(cwd, ".oxfmtrc.json"), "utf8")).not.toBe("{}\n");
+    // `apply` does not repair the pin itself.
+    expect(pinFindingsOf(cwd)).toHaveLength(1);
+
+    const synced = runCli(["sync", "--cwd", cwd, "--dry-run"]);
+    expect(synced.status).toBe(0);
+    expect(synced.stdout).toContain("No changelog entries require agent work");
   });
 });
 
@@ -2539,6 +3083,54 @@ function runMarkerGuard(
   return { status: result.status, stdout: result.stdout, stderr: result.stderr };
 }
 
+/**
+ * The body of the workflow's `node -p "…"` alignment guard, read out of the
+ * workflow like `markerGuardScriptOf`. Its strings are single-quoted too, so
+ * the first double quote after the flag terminates it.
+ */
+function alignmentGuardScriptOf(file: string): string {
+  const workflow = readFileSync(join(standardsRoot(), file), "utf8");
+  const step = workflow.slice(
+    workflow.indexOf('- name: "Guard: the pinned standards CLI matches the repository stamp"'),
+  );
+  const flag = 'node -p "';
+  const start = step.indexOf(flag) + flag.length;
+  return step.slice(start, step.indexOf('"', start));
+}
+
+/**
+ * Runs the alignment guard in a repository whose installed CLI matches the
+ * stamp, so only the pin decides the outcome. `units` maps a directory (`""`
+ * for the root) to its `package.json`; every other key is a declared workspace.
+ */
+function runAlignmentGuard(
+  file: string,
+  units: Record<string, Record<string, unknown>>,
+): { status: null | number; stderr: string; stdout: string } {
+  const cwd = mkdtempSync(join(tmpdir(), "standards-alignment-"));
+  const version = currentStandardsVersion();
+  const workspaces = Object.keys(units).filter((dir) => dir !== "");
+  writeFileSync(
+    join(cwd, ".repometa.json"),
+    JSON.stringify({ standards: version, visibility: "oss", since: 2020, workspaces }),
+  );
+  const installed = join(cwd, "node_modules", "@sebastian-software", "standards");
+  mkdirSync(installed, { recursive: true });
+  writeFileSync(
+    join(installed, "package.json"),
+    JSON.stringify({ name: CLI_NAME, version: EXACT_PIN }),
+  );
+  writeFileSync(join(installed, "manifest.json"), JSON.stringify({ currentVersion: version }));
+  for (const [dir, manifest] of Object.entries(units)) {
+    writePackageJson(cwd, dir, manifest);
+  }
+  const result = spawnSync(process.execPath, ["-p", alignmentGuardScriptOf(file)], {
+    cwd,
+    encoding: "utf8",
+  });
+  return { status: result.status, stdout: result.stdout, stderr: result.stderr };
+}
+
 describe("seeded CI guards for alignment and the blocked marker", () => {
   const nodeWorkflows = [
     "reference/node/github-workflows-ci.yml",
@@ -2650,5 +3242,120 @@ describe("seeded CI guards for alignment and the blocked marker", () => {
     for (const field of Object.keys(VALID_MARKER)) {
       expect(guard).toContain(field);
     }
+  });
+
+  it.each(nodeWorkflows)("%s reads the pin without jq", (file) => {
+    const guard = alignmentGuardScriptOf(file);
+
+    expect(guard).toContain("manifest.currentVersion !== meta.standards");
+    expect(guard).not.toContain("jq");
+  });
+
+  it.each(nodeWorkflows)("%s embeds a guard body sh cannot expand inside double quotes", (file) => {
+    const guard = alignmentGuardScriptOf(file);
+
+    expect(guard).toContain("manifest.currentVersion !== meta.standards");
+    expect(guard).not.toContain("$");
+    expect(guard).not.toContain("`");
+    expect(guard).not.toContain("\\");
+  });
+
+  it.each(nodeWorkflows)("%s passes an exact pin declared at the root", (file) => {
+    const result = runAlignmentGuard(file, { "": declaring(EXACT_PIN) });
+
+    expect(result.stderr).toBe("");
+    expect(result.status).toBe(0);
+  });
+
+  it.each(nodeWorkflows)("%s fails on a range pin", (file) => {
+    const result = runAlignmentGuard(file, { "": declaring("^0.2.0") });
+
+    expect(result.status).not.toBe(0);
+    expect(result.stderr).toContain(CLI_NAME);
+    expect(result.stderr).toContain("bare exact version literal");
+  });
+
+  it.each(nodeWorkflows)("%s fails on a workspace range beside an exact root pin", (file) => {
+    const result = runAlignmentGuard(file, {
+      "": declaring(EXACT_PIN),
+      "packages/tool": declaring("^0.2.0"),
+    });
+
+    expect(result.status).not.toBe(0);
+    expect(result.stderr).toContain("packages/tool");
+    expect(result.stderr).toContain("bare exact version literal");
+  });
+
+  it.each(nodeWorkflows)("%s reports a URL pin by its scheme only", (file) => {
+    const result = runAlignmentGuard(file, {
+      "": declaring("git+ssh://user:s3cret@host/repo.git"),
+    });
+    const output = `${result.stdout}${result.stderr}`;
+
+    expect(result.status).not.toBe(0);
+    expect(output).toContain("git+ssh:");
+    expect(output).not.toContain("s3cret");
+  });
+
+  it.each(nodeWorkflows)("%s replaces control characters in a displayed pin", (file) => {
+    const result = runAlignmentGuard(file, { "": declaring("0.11.1\n::error::injected") });
+    const output = `${result.stdout}${result.stderr}`;
+
+    expect(result.status).not.toBe(0);
+    expect(output).toContain("?::error::injected");
+    expect(output.split("\n").filter((line) => line.startsWith("::error::"))).toStrictEqual([]);
+  });
+
+  it.each(nodeWorkflows)("%s passes an exact pin declared only in a workspace", (file) => {
+    const result = runAlignmentGuard(file, { "": {}, "packages/tool": declaring(EXACT_PIN) });
+
+    expect(result.stderr).toBe("");
+    expect(result.status).toBe(0);
+  });
+
+  it.each(nodeWorkflows)("%s fails when no package.json declares the CLI", (file) => {
+    const result = runAlignmentGuard(file, { "": {} });
+
+    expect(result.status).not.toBe(0);
+    expect(result.stderr).toContain(CLI_NAME);
+    expect(result.stderr).toContain("No package.json declares");
+  });
+});
+
+describe("changelog entry 0014", () => {
+  it("documents the exact-pin migration for node repositories", async () => {
+    const { selectChanges } = await import("../src/changes.js");
+    const root = standardsRoot();
+    const file = "0014-exact-pin-shape.md";
+
+    const content = readFileSync(join(root, "changes", file), "utf8");
+    const prose = content.replaceAll(/\s+/gu, " ");
+
+    expect(/^(?<version>\d{4})-.*\.md$/u.exec(file)?.groups?.version).toBe("0014");
+    expect(content).toContain("- **Scopes:** node\n");
+    expect(content).toContain("- **Standards version:** 14\n");
+    expect(
+      selectChanges(root, 13, ["common", "node", "rust"]).map((entry) => [
+        entry.file,
+        entry.scopes,
+      ]),
+    ).toContainEqual([file, ["node"]]);
+    // A numbered judgement step tells a `catalog:` consumer how to get out.
+    expect(content).toMatch(/^\d+\. [^\n]*`catalog:`/mu);
+    expect(prose).toMatch(/re-seeded but whose pinned CLI is still too old/u);
+  });
+
+  it("stamps this repository at its manifest version, the newest changelog entry", async () => {
+    const { selectChanges } = await import("../src/changes.js");
+    const root = standardsRoot();
+    const current = currentStandardsVersion();
+
+    const versions = selectChanges(root, 0, ["common", "node", "rust"]).map(
+      (entry) => entry.version,
+    );
+
+    expect(current).toBeGreaterThanOrEqual(14);
+    expect(Math.max(...versions)).toBe(current);
+    expect(readStamp(root)).toBe(current);
   });
 });

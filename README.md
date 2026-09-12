@@ -80,7 +80,7 @@ standards init    # create .repometa.json interactively in a fresh repo
                   #   --since <int>              skip the prompt for the initial year
                   #   --yes                      non-interactive (use defaults / flags only)
                   #   --force                    overwrite an existing .repometa.json
-standards check   # report drift, exit 1 if any (part of agent:check)
+standards check   # report drift, exit 1 if any, 3 if blocking (part of agent:check)
 standards apply   # write managed files, seed missing ones, update branding, bump stamp
                   #   --from-version <int>    explicit baseline for pending-marker selection
                   #   --emit-pending <path>    write a JSON marker describing pending judgement work
@@ -94,12 +94,16 @@ runs on every pull request with the job's token:
   devDependency pinned to an exact version and run `pnpm exec standards check`.
   The lockfile decides what runs; Renovate's `:standards` preset raises the pin
   as a reviewable pull request, which is also where the drift it then reports is
-  applied.
+  applied. The rule is gated: `standards check` reports a pin that is not a bare
+  exact version literal — or a missing one in a repository whose CI runs the
+  CLI — as a blocking `pin` finding (exit `3`), and the seeded CI guard fails on
+  it too. `standards apply` does not repair it.
 - **Rust-only repositories** have no lockfile to hold it, so their workflow
   pins the version in the command itself:
   `pnpm --config.minimum-release-age=0 dlx @sebastian-software/standards@<x.y.z> check`,
   kept current by a Renovate regex manager
-  ([`reference/rust/README.md`](reference/rust/README.md)).
+  ([`reference/rust/README.md`](reference/rust/README.md)). The shape of that
+  `dlx` pin is not machine-checked.
 
 `--config.minimum-release-age=0` belongs on a `dlx` invocation and on a manual
 `apply` run: pnpm 11 defaults `minimumReleaseAge` to 24h, so without the bypass

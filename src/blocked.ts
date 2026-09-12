@@ -16,10 +16,19 @@
 export type BlockedState = {
   schemaVersion: 1;
   /**
-   * True only for the CLI/stamp alignment class: the pinned
-   * `@sebastian-software/standards` version does not ship the manifest version
-   * the repository is stamped at, so no check result of this run can be
-   * trusted. Every other unfinished check is recorded with `false`.
+   * True only for the alignment class, which has two members:
+   *
+   * - the stamp mismatch: the pinned `@sebastian-software/standards` version
+   *   does not ship the manifest version the repository is stamped at, so no
+   *   check result of this run can be trusted;
+   * - the pin shape: the pin could not be made a bare exact version literal
+   *   (a range, tag, `catalog:` or `workspace:` reference, alias or URL), or
+   *   the CLI could not be declared at all.
+   *
+   * Both make `standards check` exit `3`; only the stamp mismatch also makes
+   * `apply` and `sync` refuse to write. `reason` states which member blocked —
+   * for the pin-shape member `expectedCliVersion` and `observedCliVersion` may
+   * agree. Every other unfinished check is recorded with `false`.
    */
   blocking: boolean;
   /** One sentence naming what could not be validated, in plain language. */
