@@ -115,6 +115,21 @@ for the full step-by-step procedure.
 
 - **Never reintroduce Prettier.** oxfmt is the org formatter. If a repo still
   uses Prettier, migrating away from it is part of the job (see change 0001).
+- **Repository-specific formatter ignores live in `.prettierignore`.**
+  `.oxfmtrc.json` is managed byte-exact. Before `standards apply` restores it,
+  it moves every `ignorePatterns` entry the managed file does not carry into
+  the root `.prettierignore` — a workspace's entries rewritten relative to the
+  root, because the seeded CI formats from there, and also kept unchanged in
+  that workspace's own `.prettierignore`, because oxfmt reads the file only
+  from the directory it runs in — and reports each file as `created` or
+  `appended`. Keep those entries; do not move them back into
+  `.oxfmtrc.json`. Only entries whose effect provably stays the same move:
+  a config that contains any negation moves nothing, and a positive entry
+  that could reach any directory with its own oxfmt config, declared as a
+  workspace or not, stays too. Those are
+  listed as comments under a "Not moved" header instead. Decide on each of
+  them in the drift pull request — format the files, anchor the pattern, or
+  drop it.
 - **Seeded files are owned by the repo.** Do not overwrite local adaptations —
   merge the intent of the change into them instead.
 - **Every content change to a seeded file requires a judgement step in

@@ -152,6 +152,19 @@ function configureMarkdownThemer(cwd: string): void {
   );
 }
 
+function withIgnorePatterns(managed: string, extra: string[]): string {
+  const config: unknown = JSON.parse(managed);
+  if (typeof config !== "object" || config === null || !("ignorePatterns" in config)) {
+    throw new Error("The managed oxfmt config carries no ignorePatterns.");
+  }
+  const patterns: unknown = config.ignorePatterns;
+  if (!Array.isArray(patterns)) {
+    throw new TypeError("The managed oxfmt config's ignorePatterns is not a list.");
+  }
+  const own = patterns.filter((pattern): pattern is string => typeof pattern === "string");
+  return `${JSON.stringify({ ...config, ignorePatterns: [...own, ...extra] }, undefined, 2)}\n`;
+}
+
 describe("apply and check", () => {
   it("brings a fresh node repo up to standards and detects drift afterwards", () => {
     const cwd = createFixtureRepo();
@@ -189,6 +202,75 @@ describe("apply and check", () => {
     const repaired = runApply(cwd, YEAR);
     expect(repaired).toHaveLength(1);
     expect(runCheck(cwd, YEAR)).toStrictEqual([]);
+  });
+
+  it("moves repository-specific oxfmt ignores into .prettierignore instead of dropping them", () => {
+    const cwd = createFixtureRepo();
+    runApply(cwd, YEAR);
+    const managed = readFileSync(join(cwd, ".oxfmtrc.json"), "utf8");
+    writeFileSync(
+      join(cwd, ".oxfmtrc.json"),
+      withIgnorePatterns(managed, [".limen.yaml", "**/_generated/"]),
+    );
+
+    expect(runApply(cwd, YEAR)).toStrictEqual([
+      { path: ".prettierignore", action: "created" },
+      { path: ".oxfmtrc.json", action: "updated" },
+    ]);
+    expect(readFileSync(join(cwd, ".oxfmtrc.json"), "utf8")).toBe(managed);
+    expect(readFileSync(join(cwd, ".prettierignore"), "utf8")).toBe(
+      "# Moved from .oxfmtrc.json by `standards apply`.\n.limen.yaml\n**/_generated/\n",
+    );
+    expect(runCheck(cwd, YEAR)).toStrictEqual([]);
+    expect(runApply(cwd, YEAR)).toStrictEqual([]);
+  });
+
+  it("appends every moved ignore to an existing .prettierignore, present ones included", () => {
+    const cwd = createFixtureRepo();
+    runApply(cwd, YEAR);
+    const managed = readFileSync(join(cwd, ".oxfmtrc.json"), "utf8");
+    writeFileSync(join(cwd, ".prettierignore"), "# own entries\n.limen.yaml");
+    writeFileSync(
+      join(cwd, ".oxfmtrc.json"),
+      withIgnorePatterns(managed, [".limen.yaml", ".sops.yaml", ".sops.yaml"]),
+    );
+
+    expect(runApply(cwd, YEAR)).toContainEqual({ path: ".prettierignore", action: "appended" });
+    expect(readFileSync(join(cwd, ".prettierignore"), "utf8")).toBe(
+      "# own entries\n.limen.yaml\n\n# Moved from .oxfmtrc.json by `standards apply`.\n" +
+        ".limen.yaml\n.sops.yaml\n.sops.yaml\n",
+    );
+  });
+
+  it("moves nothing from a config with a negation and lists every entry as not moved", () => {
+    const cwd = createFixtureRepo();
+    runApply(cwd, YEAR);
+    const managed = readFileSync(join(cwd, ".oxfmtrc.json"), "utf8");
+    writeFileSync(
+      join(cwd, ".oxfmtrc.json"),
+      withIgnorePatterns(managed, ["/build", "gen/*", "!gen/keep.ts"]),
+    );
+
+    expect(runApply(cwd, YEAR)).toStrictEqual([
+      { path: ".prettierignore", action: "created" },
+      { path: ".oxfmtrc.json", action: "updated" },
+    ]);
+    expect(readFileSync(join(cwd, ".oxfmtrc.json"), "utf8")).toBe(managed);
+    expect(readFileSync(join(cwd, ".prettierignore"), "utf8")).toBe(
+      "# Not moved from .oxfmtrc.json by `standards apply`: each would change which files are checked.\n" +
+        "# /build\n# gen/*\n# !gen/keep.ts\n",
+    );
+  });
+
+  it("restores .oxfmtrc.json without a .prettierignore when there is nothing to keep", () => {
+    const cwd = createFixtureRepo();
+    runApply(cwd, YEAR);
+
+    for (const content of ["{}\n", "not json\n", '{ "ignorePatterns": "dist" }\n']) {
+      writeFileSync(join(cwd, ".oxfmtrc.json"), content);
+      expect(runApply(cwd, YEAR)).toStrictEqual([{ path: ".oxfmtrc.json", action: "updated" }]);
+    }
+    expect(existsSync(join(cwd, ".prettierignore"))).toBe(false);
   });
 
   it("detects drift in the consumer AGENTS section", () => {
@@ -642,6 +724,114 @@ describe("nested node workspaces", () => {
     }
     expect(existsSync(join(cwd, "SECURITY.md"))).toBe(true);
     expect(readFileSync(join(cwd, "node", "package.json"), "utf8")).toBe(PINNED_PACKAGE_JSON);
+  });
+
+  it("moves a workspace's own oxfmt ignores into the root and the workspace .prettierignore", () => {
+    const cwd = createWorkspaceRepo(["node"]);
+    runApply(cwd, YEAR);
+    const managed = readFileSync(join(cwd, "node", ".oxfmtrc.json"), "utf8");
+    writeFileSync(
+      join(cwd, "node", ".oxfmtrc.json"),
+      withIgnorePatterns(managed, ["_generated/", "src/legacy.ts"]),
+    );
+
+    expect(runApply(cwd, YEAR)).toStrictEqual([
+      { path: ".prettierignore", action: "created" },
+      { path: join("node", ".prettierignore"), action: "created" },
+      { path: join("node", ".oxfmtrc.json"), action: "updated" },
+    ]);
+    // The seeded CI formats from the root, where a workspace's own
+    // .prettierignore is never read, so the root file carries the entries
+    // relative to the root.
+    expect(readFileSync(join(cwd, ".prettierignore"), "utf8")).toBe(
+      "# Moved from .oxfmtrc.json by `standards apply`.\nnode/**/_generated/\nnode/src/legacy.ts\n",
+    );
+    // oxfmt run inside the workspace reads only the workspace file, so it keeps
+    // the entries exactly as the workspace config had them.
+    expect(readFileSync(join(cwd, "node", ".prettierignore"), "utf8")).toBe(
+      "# Moved from .oxfmtrc.json by `standards apply`.\n_generated/\nsrc/legacy.ts\n",
+    );
+  });
+
+  it("reports the root .prettierignore once when several workspaces move ignores", () => {
+    const cwd = createWorkspaceRepo(["node", "web"]);
+    runApply(cwd, YEAR);
+    for (const dir of ["node", "web"]) {
+      const managed = readFileSync(join(cwd, dir, ".oxfmtrc.json"), "utf8");
+      writeFileSync(join(cwd, dir, ".oxfmtrc.json"), withIgnorePatterns(managed, ["_generated/"]));
+    }
+
+    const changes = runApply(cwd, YEAR);
+
+    expect(changes.filter((change) => change.path === ".prettierignore")).toStrictEqual([
+      { path: ".prettierignore", action: "created" },
+    ]);
+    expect(readFileSync(join(cwd, ".prettierignore"), "utf8")).toBe(
+      "# Moved from .oxfmtrc.json by `standards apply`.\nnode/**/_generated/\n\nweb/**/_generated/\n",
+    );
+  });
+
+  it("does not move a root ignore that could reach a workspace with its own config", () => {
+    const cwd = createFixtureRepo();
+    mkdirSync(join(cwd, "packages", "app"), { recursive: true });
+    writeFileSync(join(cwd, "packages", "app", "package.json"), "{}\n");
+    writeFileSync(
+      join(cwd, ".repometa.json"),
+      `${JSON.stringify({ standards: 0, visibility: "oss", since: 2020, platform: "github", workspaces: ["packages/app"] }, undefined, 2)}\n`,
+    );
+    runApply(cwd, YEAR);
+    const managed = readFileSync(join(cwd, ".oxfmtrc.json"), "utf8");
+    writeFileSync(
+      join(cwd, ".oxfmtrc.json"),
+      withIgnorePatterns(managed, [".limen.yaml", "/build", ".limen/**/*.sops"]),
+    );
+
+    expect(runApply(cwd, YEAR)).toContainEqual({ path: ".prettierignore", action: "created" });
+    expect(readFileSync(join(cwd, ".prettierignore"), "utf8")).toBe(
+      "# Moved from .oxfmtrc.json by `standards apply`.\n/build\n.limen/**/*.sops\n\n" +
+        "# Not moved from .oxfmtrc.json by `standards apply`: each would change which files are checked.\n" +
+        "# .limen.yaml\n",
+    );
+    expect(readFileSync(join(cwd, ".oxfmtrc.json"), "utf8")).toBe(managed);
+  });
+
+  it("does not move a root ignore that could reach an undeclared directory with its own oxfmt config", () => {
+    const cwd = createFixtureRepo();
+    runApply(cwd, YEAR);
+    mkdirSync(join(cwd, "vendor", "lib"), { recursive: true });
+    writeFileSync(join(cwd, "vendor", "lib", ".oxfmtrc.jsonc"), "{}\n");
+    const managed = readFileSync(join(cwd, ".oxfmtrc.json"), "utf8");
+    writeFileSync(join(cwd, ".oxfmtrc.json"), withIgnorePatterns(managed, ["out", "/build"]));
+
+    runApply(cwd, YEAR);
+
+    expect(readFileSync(join(cwd, ".prettierignore"), "utf8")).toBe(
+      "# Moved from .oxfmtrc.json by `standards apply`.\n/build\n\n" +
+        "# Not moved from .oxfmtrc.json by `standards apply`: each would change which files are checked.\n" +
+        "# out\n",
+    );
+  });
+
+  it("moves a root ignore when the workspace config did not exist before the run", () => {
+    const cwd = createFixtureRepo();
+    mkdirSync(join(cwd, "packages", "app"), { recursive: true });
+    writeFileSync(join(cwd, "packages", "app", "package.json"), "{}\n");
+    writeFileSync(
+      join(cwd, ".repometa.json"),
+      `${JSON.stringify({ standards: 0, visibility: "oss", since: 2020, platform: "github", workspaces: ["packages/app"] }, undefined, 2)}\n`,
+    );
+    const reference = readFileSync(
+      new URL("../reference/node/oxfmtrc.json", import.meta.url),
+      "utf8",
+    );
+    writeFileSync(join(cwd, ".oxfmtrc.json"), withIgnorePatterns(reference, [".limen.yaml"]));
+
+    runApply(cwd, YEAR);
+
+    expect(existsSync(join(cwd, "packages", "app", ".oxfmtrc.json"))).toBe(true);
+    expect(readFileSync(join(cwd, ".prettierignore"), "utf8")).toBe(
+      "# Moved from .oxfmtrc.json by `standards apply`.\n.limen.yaml\n",
+    );
   });
 
   it("reports a workspace file with its full path", () => {

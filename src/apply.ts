@@ -2,10 +2,18 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 
 import type { ScopeSpec } from "./manifest.js";
+import type { IgnoreMigration, IgnorePartition } from "./oxfmt-ignores.js";
 import type { RepoMeta } from "./repo.js";
 import type { SyncContext } from "./sync.js";
 
 import { upsertSection } from "./branding.js";
+import {
+  findNestedConfigDirs,
+  IGNORE_FILE,
+  mergeIgnoreFile,
+  OXFMT_CONFIG,
+  planIgnoreMigration,
+} from "./oxfmt-ignores.js";
 import { readmeMigrationIssues } from "./readme.js";
 import { isGeneratedReadme, writeRepoMeta } from "./repo.js";
 import {
@@ -27,7 +35,57 @@ function writeTarget(cwd: string, target: string, content: string): void {
   writeFileSync(path, content, "utf8");
 }
 
-function applyManaged(context: SyncContext, scope: ScopeSpec, dir: string): Change[] {
+function writeIgnoreFile(context: SyncContext, target: string, entries: IgnorePartition): Change[] {
+  const existing = readTarget(context, target);
+  const content = mergeIgnoreFile(existing, entries.moved, entries.unmoved);
+  if (content === undefined) return [];
+  writeTarget(context.cwd, target, content);
+  return [{ path: target, action: existing === undefined ? "created" : "appended" }];
+}
+
+/**
+ * Carries the repository's own `ignorePatterns` out of the managed oxfmt config
+ * before it is overwritten, so restoring the managed file does not silently
+ * re-enable formatting for files the repository had excluded: into the root
+ * `.prettierignore`, and for a workspace also into its own one. See
+ * `src/oxfmt-ignores.ts` for where the entries go and why.
+ */
+function preserveOxfmtIgnores(
+  context: SyncContext,
+  dir: string,
+  migration: IgnoreMigration,
+): Change[] {
+  return [
+    ...writeIgnoreFile(context, IGNORE_FILE, migration),
+    ...(dir === ""
+      ? []
+      : writeIgnoreFile(context, join(dir, IGNORE_FILE), { moved: migration.local, unmoved: [] })),
+  ];
+}
+
+/**
+ * Every drifting oxfmt config of one run writes the same root `.prettierignore`,
+ * so the run reports that file once: at the position of its first record, as
+ * `created` when any unit created it and as `appended` otherwise.
+ */
+function mergeIgnoreFileChanges(changes: Change[]): Change[] {
+  const created = changes.some(
+    (change) => change.path === IGNORE_FILE && change.action === "created",
+  );
+  let reported = false;
+  return changes.flatMap((change) => {
+    if (change.path !== IGNORE_FILE) return [change];
+    if (reported) return [];
+    reported = true;
+    return [{ path: IGNORE_FILE, action: created ? "created" : change.action }];
+  });
+}
+
+/** Where a unit's entries are written, plus the oxfmt configs that existed before this run. */
+type Placement = { dir: string; configDirs: string[] };
+
+function applyManaged(context: SyncContext, scope: ScopeSpec, placement: Placement): Change[] {
+  const { dir, configDirs } = placement;
   return scope.managed
     .filter((mapping) => matchesPlatform(mapping.platform, context.meta.platform))
     .flatMap((mapping) => {
@@ -37,8 +95,17 @@ function applyManaged(context: SyncContext, scope: ScopeSpec, dir: string): Chan
       if (actual === reference) {
         return [];
       }
+      const preserved =
+        mapping.target === OXFMT_CONFIG
+          ? preserveOxfmtIgnores(
+              context,
+              dir,
+              planIgnoreMigration({ actual, reference, dir, configDirs }),
+            )
+          : [];
       writeTarget(context.cwd, target, reference);
       return [
+        ...preserved,
         {
           path: target,
           action: actual === undefined ? ("created" as const) : ("updated" as const),
@@ -144,11 +211,14 @@ export function runApply(cwd: string, currentYear: number, options?: ApplyOption
   validateReadmeMigration(context);
 
   const changes: Change[] = [];
+  // Searched before any unit writes, so a workspace config this run creates never
+  // counts as one the repository's own ignore patterns used to stop at.
+  const configDirs = findNestedConfigDirs(cwd);
 
   for (const unit of context.units) {
     for (const scope of unit.scopes) {
       changes.push(
-        ...applyManaged(context, scope, unit.dir),
+        ...applyManaged(context, scope, { dir: unit.dir, configDirs }),
         ...applySeeded(context, scope, unit.dir),
         ...applySections(context, scope),
       );
@@ -166,5 +236,5 @@ export function runApply(cwd: string, currentYear: number, options?: ApplyOption
     changes.push({ path: ".repometa.json", action: "bumped" });
   }
 
-  return changes;
+  return mergeIgnoreFileChanges(changes);
 }
