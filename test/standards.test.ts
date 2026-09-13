@@ -36,7 +36,12 @@ import {
 } from "../src/init.js";
 // Aliased: several tests destructure `getPackageRoot` from a dynamic import.
 import { loadManifest, getPackageRoot as standardsRoot } from "../src/manifest.js";
-import { hasStandardsLane, inspectPin } from "../src/pin.js";
+import {
+  EXACT_VERSION_LITERAL,
+  hasStandardsLane,
+  inspectPin,
+  isExactVersionLiteral,
+} from "../src/pin.js";
 import { isGeneratedReadme, readRepoMeta } from "../src/repo.js";
 import {
   assertPendingPayload,
@@ -2226,6 +2231,55 @@ function declaring(specifier: string, field = "devDependencies"): Record<string,
   return { [field]: { [CLI_NAME]: specifier } };
 }
 
+/**
+ * One case table for the SemVer 2.0.0 pin grammar, shared by the CLI and the
+ * seeded CI guards, so both are held to the same accepts and rejects.
+ */
+const EXACT_PIN_SHAPES = [
+  "1.2.3-0",
+  "1.2.3-0a",
+  "1.2.3-1a.2",
+  "1.2.3--",
+  "1.2.3-x.7.z.92",
+  "1.2.3-rc.10",
+  "1.2.3-rc.1+001",
+  "1.2.3+01",
+  "1.2.3+exp.sha.5114f85",
+  // A hyphen makes `-01` alphanumeric, so its leading zero is legal.
+  "1.2.3--01",
+];
+
+/**
+ * Malformed prerelease and build identifiers the earlier character-class
+ * pattern admitted; `npm-package-arg` resolves some of them as mutable dist-tags.
+ */
+const MALFORMED_PIN_SHAPES = [
+  "1.2.3-.",
+  "1.2.3-foo..bar",
+  "1.2.3+..",
+  "1.2.3-01",
+  "1.2.3-a.",
+  "1.2.3-.a",
+  "1.2.3-a.01",
+];
+
+const NON_EXACT_PIN_SHAPES = [
+  ...MALFORMED_PIN_SHAPES,
+  "1.2.3-",
+  "1.2.3+",
+  "1.2.3+a..b",
+  "1.2.3+.a",
+  "1.2.3-rc.1+",
+  "1.02.3",
+  "1.2.03",
+  "1.2.3-a_b",
+  "01.2.3",
+  "v1.2.3",
+  " 0.11.1",
+  "1.2.3.4",
+  "1.2.3\n",
+];
+
 function writePackageJson(cwd: string, dir: string, manifest: Record<string, unknown>): void {
   mkdirSync(join(cwd, dir), { recursive: true });
   writeFileSync(join(cwd, dir, "package.json"), `${JSON.stringify(manifest, undefined, 2)}\n`);
@@ -2635,6 +2689,18 @@ describe("standards CLI pin", () => {
     "catalog:",
   ])("reports the non-exact specifier %s exactly once", (specifier) => {
     expect(pinFindingsOf(createDeclaringFixture(declaring(specifier)))).toHaveLength(1);
+  });
+
+  it.each(EXACT_PIN_SHAPES)("accepts the SemVer 2.0.0 version literal %s", (specifier) => {
+    expect(isExactVersionLiteral(specifier)).toBe(true);
+  });
+
+  it.each(NON_EXACT_PIN_SHAPES)("rejects the malformed version literal %s", (specifier) => {
+    expect(isExactVersionLiteral(specifier)).toBe(false);
+  });
+
+  it("reports a malformed prerelease pin through check", () => {
+    expect(pinFindingsOf(createDeclaringFixture(declaring("1.2.3-foo..bar")))).toHaveLength(1);
   });
 
   it("reports a URL specifier by its scheme only, so a credential never reaches a log", () => {
@@ -3274,6 +3340,36 @@ describe("seeded CI guards for alignment and the blocked marker", () => {
     expect(result.stderr).toContain(CLI_NAME);
     expect(result.stderr).toContain("bare exact version literal");
   });
+
+  it.each(nodeWorkflows)("%s holds the pin to the same grammar as the CLI", (file) => {
+    const guard = alignmentGuardScriptOf(file);
+    const opener = "typeof spec === 'string' && /";
+    const start = guard.indexOf(opener) + opener.length;
+    const literal = guard.slice(start, guard.indexOf("/.exec(spec)", start));
+
+    expect(EXACT_VERSION_LITERAL.source.endsWith("$")).toBe(true);
+    expect(literal).toBe(EXACT_VERSION_LITERAL.source.slice(0, -1));
+  });
+
+  it.each(nodeWorkflows.flatMap((file) => NON_EXACT_PIN_SHAPES.map((spec) => [file, spec])))(
+    "%s fails on the malformed pin %s",
+    (file, spec) => {
+      const result = runAlignmentGuard(file, { "": declaring(spec) });
+
+      expect(result.status).not.toBe(0);
+      expect(result.stderr).toContain("bare exact version literal");
+    },
+  );
+
+  it.each(nodeWorkflows.flatMap((file) => EXACT_PIN_SHAPES.map((spec) => [file, spec])))(
+    "%s passes the SemVer 2.0.0 pin %s",
+    (file, spec) => {
+      const result = runAlignmentGuard(file, { "": declaring(spec) });
+
+      expect(result.stderr).toBe("");
+      expect(result.status).toBe(0);
+    },
+  );
 
   it.each(nodeWorkflows)("%s fails on a workspace range beside an exact root pin", (file) => {
     const result = runAlignmentGuard(file, {

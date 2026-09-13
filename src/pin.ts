@@ -18,28 +18,29 @@ import { workspaceDirs } from "./sync.js";
 // `standards apply` cannot repair it — which is why the finding is blocking.
 
 /**
- * A bare exact version literal. Deliberately one regex and no semver library:
- * the pin is written by `--save-exact` or by Renovate, and neither produces
- * `=0.11.1`, whitespace padding or an alias. The package stays at zero runtime
- * dependencies.
+ * A bare exact version literal in the SemVer 2.0.0 grammar. Deliberately one
+ * regex and no semver library: the pin is written by `--save-exact` or by
+ * Renovate, and neither produces `=0.11.1`, whitespace padding or an alias. The
+ * package stays at zero runtime dependencies.
+ *
+ * - The core is three numeric identifiers without a leading zero.
+ * - A prerelease after `-` is one or more dot-separated, non-empty identifiers;
+ *   a purely numeric one has no leading zero.
+ * - A build part after `+` is one or more dot-separated, non-empty identifiers,
+ *   where leading zeros are allowed.
+ *
+ * The seeded node CI guards embed the same text without the trailing `$` and
+ * compare the match to the whole specifier, so the alphanumeric prerelease
+ * branch comes first: in the unanchored guard, a numeric branch tried first
+ * would stop `1.2.3-0a` at `1.2.3-0`.
  */
-// eslint-disable-next-line security/detect-unsafe-regex -- anchored, and no quantified group can match the text of its neighbor; linear on any input
-const EXACT_VERSION_LITERAL = /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/u;
+export const EXACT_VERSION_LITERAL =
+  // eslint-disable-next-line security/detect-unsafe-regex, regexp/prefer-d, regexp/no-useless-character-class -- anchored; the nested `(?:[.]identifier)*` repetition is unambiguous because only `.` separates repeated identifiers and `.` belongs to no identifier class, and the three prerelease branches are disjoint (letter or hyphen, `0`, nonzero-led digits), so matching stays linear on any input. `[0-9]`, `[.]` and `[+]` keep the text byte-identical to the CI guards, whose double-quoted `node -p` body admits no backslash.
+  /^(?:0|[1-9][0-9]*)[.](?:0|[1-9][0-9]*)[.](?:0|[1-9][0-9]*)(?:-(?:[0-9]*[A-Za-z-][0-9A-Za-z-]*|0|[1-9][0-9]*)(?:[.](?:[0-9]*[A-Za-z-][0-9A-Za-z-]*|0|[1-9][0-9]*))*)?(?:[+][0-9A-Za-z-]+(?:[.][0-9A-Za-z-]+)*)?$/u;
 
-/** A numeric core component with a leading zero, such as the `01` of `01.2.3`. */
-const LEADING_ZERO = /^0\d/u;
-
-/**
- * Whether a declared specifier is a bare exact version literal. The regex
- * alone admits `01.2.3`; a leading zero in a core component is rejected on top
- * of it, because no tool that writes the pin produces that form.
- */
+/** Whether a declared specifier is a bare exact version literal. */
 export function isExactVersionLiteral(specifier: string): boolean {
-  if (!EXACT_VERSION_LITERAL.test(specifier)) {
-    return false;
-  }
-  const core = specifier.split(/[-+]/u, 1)[0] ?? "";
-  return !core.split(".").some((component) => LEADING_ZERO.test(component));
+  return EXACT_VERSION_LITERAL.test(specifier);
 }
 
 /** Whether a code point is a C0 control, DEL, or a C1 control. */
