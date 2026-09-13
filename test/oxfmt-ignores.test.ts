@@ -139,6 +139,15 @@ describe("mergeIgnoreFile", () => {
     expect(mergeIgnoreFile(merged, ["/build"], [".limen.yaml"])).toBeUndefined();
   });
 
+  it("appends present lines after a missing one, so a negation still follows its exclusion", () => {
+    expect(mergeIgnoreFile("!gen/keep.ts\n", ["gen/*", "!gen/keep.ts"])).toBe(
+      `!gen/keep.ts\n\n${HEADER}\ngen/*\n!gen/keep.ts\n`,
+    );
+    expect(mergeIgnoreFile("gen/*\n", ["gen/*", "!gen/keep.ts"])).toBe(
+      `gen/*\n\n${HEADER}\n!gen/keep.ts\n`,
+    );
+  });
+
   it("does not repeat the header on a later migration", () => {
     expect(mergeIgnoreFile(`${HEADER}\na\n`, ["b"])).toBe(`${HEADER}\na\n\nb\n`);
   });

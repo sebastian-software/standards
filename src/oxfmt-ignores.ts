@@ -194,6 +194,10 @@ function appendBlock(base: string, lines: string[]): string {
  * The ignore file with every missing moved pattern appended, and every missing
  * unmoved one listed as a comment under its own header, or `undefined` when all
  * of them are already present. Existing lines are never reordered or removed.
+ *
+ * Gitignore matching is order-sensitive, so from the first missing moved pattern
+ * on the whole incoming sequence is appended, lines already in the file included:
+ * a negation that is already present has to follow the exclusion it overrides.
  */
 export function mergeIgnoreFile(
   existing: string | undefined,
@@ -201,7 +205,8 @@ export function mergeIgnoreFile(
   unmoved: string[] = [],
 ): string | undefined {
   const present = new Set((existing ?? "").split(/\r?\n/u).map((line) => line.trim()));
-  const missing = patterns.filter((pattern) => !present.has(pattern));
+  const firstMissing = patterns.findIndex((pattern) => !present.has(pattern));
+  const missing = firstMissing === -1 ? [] : patterns.slice(firstMissing);
   const missingUnmoved = unmoved
     .map((pattern) => `# ${pattern}`)
     .filter((line) => !present.has(line));
