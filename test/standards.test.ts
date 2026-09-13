@@ -130,6 +130,19 @@ function configureMarkdownThemer(cwd: string): void {
   );
 }
 
+function withIgnorePatterns(managed: string, extra: string[]): string {
+  const config: unknown = JSON.parse(managed);
+  if (typeof config !== "object" || config === null || !("ignorePatterns" in config)) {
+    throw new Error("The managed oxfmt config carries no ignorePatterns.");
+  }
+  const patterns: unknown = config.ignorePatterns;
+  if (!Array.isArray(patterns)) {
+    throw new TypeError("The managed oxfmt config's ignorePatterns is not a list.");
+  }
+  const own = patterns.filter((pattern): pattern is string => typeof pattern === "string");
+  return `${JSON.stringify({ ...config, ignorePatterns: [...own, ...extra] }, undefined, 2)}\n`;
+}
+
 describe("apply and check", () => {
   it("brings a fresh node repo up to standards and detects drift afterwards", () => {
     const cwd = createFixtureRepo();
@@ -167,6 +180,54 @@ describe("apply and check", () => {
     const repaired = runApply(cwd, YEAR);
     expect(repaired).toHaveLength(1);
     expect(runCheck(cwd, YEAR)).toStrictEqual([]);
+  });
+
+  it("moves repository-specific oxfmt ignores into .prettierignore instead of dropping them", () => {
+    const cwd = createFixtureRepo();
+    runApply(cwd, YEAR);
+    const managed = readFileSync(join(cwd, ".oxfmtrc.json"), "utf8");
+    writeFileSync(
+      join(cwd, ".oxfmtrc.json"),
+      withIgnorePatterns(managed, [".limen.yaml", "**/_generated/"]),
+    );
+
+    expect(runApply(cwd, YEAR)).toStrictEqual([
+      { path: ".prettierignore", action: "created" },
+      { path: ".oxfmtrc.json", action: "updated" },
+    ]);
+    expect(readFileSync(join(cwd, ".oxfmtrc.json"), "utf8")).toBe(managed);
+    expect(readFileSync(join(cwd, ".prettierignore"), "utf8")).toBe(
+      "# Moved from .oxfmtrc.json by `standards apply`.\n.limen.yaml\n**/_generated/\n",
+    );
+    expect(runCheck(cwd, YEAR)).toStrictEqual([]);
+    expect(runApply(cwd, YEAR)).toStrictEqual([]);
+  });
+
+  it("appends only missing ignores to an existing .prettierignore", () => {
+    const cwd = createFixtureRepo();
+    runApply(cwd, YEAR);
+    const managed = readFileSync(join(cwd, ".oxfmtrc.json"), "utf8");
+    writeFileSync(join(cwd, ".prettierignore"), "# own entries\n.limen.yaml");
+    writeFileSync(
+      join(cwd, ".oxfmtrc.json"),
+      withIgnorePatterns(managed, [".limen.yaml", ".sops.yaml", ".sops.yaml"]),
+    );
+
+    expect(runApply(cwd, YEAR)).toContainEqual({ path: ".prettierignore", action: "appended" });
+    expect(readFileSync(join(cwd, ".prettierignore"), "utf8")).toBe(
+      "# own entries\n.limen.yaml\n\n# Moved from .oxfmtrc.json by `standards apply`.\n.sops.yaml\n",
+    );
+  });
+
+  it("restores .oxfmtrc.json without a .prettierignore when there is nothing to keep", () => {
+    const cwd = createFixtureRepo();
+    runApply(cwd, YEAR);
+
+    for (const content of ["{}\n", "not json\n", '{ "ignorePatterns": "dist" }\n']) {
+      writeFileSync(join(cwd, ".oxfmtrc.json"), content);
+      expect(runApply(cwd, YEAR)).toStrictEqual([{ path: ".oxfmtrc.json", action: "updated" }]);
+    }
+    expect(existsSync(join(cwd, ".prettierignore"))).toBe(false);
   });
 
   it("detects drift in the consumer AGENTS section", () => {
@@ -620,6 +681,27 @@ describe("nested node workspaces", () => {
     }
     expect(existsSync(join(cwd, "SECURITY.md"))).toBe(true);
     expect(readFileSync(join(cwd, "node", "package.json"), "utf8")).toBe("{}\n");
+  });
+
+  it("moves a workspace's own oxfmt ignores into the root .prettierignore", () => {
+    const cwd = createWorkspaceRepo(["node"]);
+    runApply(cwd, YEAR);
+    const managed = readFileSync(join(cwd, "node", ".oxfmtrc.json"), "utf8");
+    writeFileSync(
+      join(cwd, "node", ".oxfmtrc.json"),
+      withIgnorePatterns(managed, ["_generated/", "src/legacy.ts"]),
+    );
+
+    expect(runApply(cwd, YEAR)).toStrictEqual([
+      { path: ".prettierignore", action: "created" },
+      { path: join("node", ".oxfmtrc.json"), action: "updated" },
+    ]);
+    // The seeded CI formats from the root, where a workspace's own
+    // .prettierignore is never read.
+    expect(readFileSync(join(cwd, ".prettierignore"), "utf8")).toBe(
+      "# Moved from .oxfmtrc.json by `standards apply`.\nnode/**/_generated/\nnode/src/legacy.ts\n",
+    );
+    expect(existsSync(join(cwd, "node", ".prettierignore"))).toBe(false);
   });
 
   it("reports a workspace file with its full path", () => {

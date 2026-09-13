@@ -6,6 +6,13 @@ import type { RepoMeta } from "./repo.js";
 import type { SyncContext } from "./sync.js";
 
 import { upsertSection } from "./branding.js";
+import {
+  extraIgnorePatterns,
+  IGNORE_FILE,
+  mergeIgnoreFile,
+  OXFMT_CONFIG,
+  scopeToDirectory,
+} from "./oxfmt-ignores.js";
 import { readmeMigrationIssues } from "./readme.js";
 import { isGeneratedReadme, writeRepoMeta } from "./repo.js";
 import {
@@ -27,6 +34,20 @@ function writeTarget(cwd: string, target: string, content: string): void {
   writeFileSync(path, content, "utf8");
 }
 
+/**
+ * Carries the repository's own `ignorePatterns` out of the managed oxfmt config
+ * before it is overwritten, so restoring the managed file does not silently
+ * re-enable formatting for files the repository had excluded. See
+ * `src/oxfmt-ignores.ts` for where the entries go and why.
+ */
+function preserveOxfmtIgnores(context: SyncContext, patterns: string[]): Change[] {
+  const existing = readTarget(context, IGNORE_FILE);
+  const content = mergeIgnoreFile(existing, patterns);
+  if (content === undefined) return [];
+  writeTarget(context.cwd, IGNORE_FILE, content);
+  return [{ path: IGNORE_FILE, action: existing === undefined ? "created" : "appended" }];
+}
+
 function applyManaged(context: SyncContext, scope: ScopeSpec, dir: string): Change[] {
   return scope.managed
     .filter((mapping) => matchesPlatform(mapping.platform, context.meta.platform))
@@ -37,8 +58,18 @@ function applyManaged(context: SyncContext, scope: ScopeSpec, dir: string): Chan
       if (actual === reference) {
         return [];
       }
+      const preserved =
+        mapping.target === OXFMT_CONFIG
+          ? preserveOxfmtIgnores(
+              context,
+              extraIgnorePatterns(actual, reference).map((pattern) =>
+                scopeToDirectory(pattern, dir),
+              ),
+            )
+          : [];
       writeTarget(context.cwd, target, reference);
       return [
+        ...preserved,
         {
           path: target,
           action: actual === undefined ? ("created" as const) : ("updated" as const),
