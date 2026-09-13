@@ -140,13 +140,16 @@ jobs:
       # The marker guard needs `node`, so it sits below the toolchain setup
       # rather than beside the pending guard it complements.
       # `.standards/blocked.json` records an agent run that pushed a result it
-      # could not validate. `blocking: true` is the CLI/stamp alignment class:
-      # every verdict of that run was computed against the wrong manifest, so
-      # the pull request must not merge. A non-blocking marker is context for
-      # the reviewer — the failures it lists are reported by this workflow's own
-      # lanes. The marker is parsed rather than matched line by line: JSON may
-      # put `"blocking":` and `true` on separate lines, and a guard whose whole
-      # purpose is to fail closed must fail on a marker it cannot read at all.
+      # could not validate. `blocking: true` is the alignment class, with two
+      # members: the pinned CLI does not ship the stamped manifest version, or
+      # the pin is not an exact version literal. Either way `standards check`
+      # exits 3 and the pull request must not merge (only the stamp member also
+      # makes `apply` and `sync` refuse to write). A non-blocking marker is
+      # context for the reviewer — the failures it lists are reported by this
+      # workflow's own lanes. The marker is parsed rather than matched line by
+      # line: JSON may put `"blocking":` and `true` on separate lines, and a guard
+      # whose whole purpose is to fail closed must fail on a marker it cannot
+      # read at all.
       # `node` rather than `jq`, which the Forgejo node image may lack; the
       # schema is `BlockedState` in @sebastian-software/standards.
       - name: "Guard: no blocking agent findings for this PR"

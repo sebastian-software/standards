@@ -3,20 +3,33 @@ import { join } from "node:path";
 import type { ScopeSpec } from "./manifest.js";
 import type { SyncContext } from "./sync.js";
 
+import { loadCliName } from "./manifest.js";
+import { inspectPin, isExactVersionLiteral } from "./pin.js";
 import { readmeMigrationIssues } from "./readme.js";
 import { isGeneratedReadme } from "./repo.js";
 import { createContext, matchesPlatform, readReference, readTarget, sectionState } from "./sync.js";
 
 export type Finding = {
-  kind: "managed" | "readme" | "section" | "seeded" | "stamp";
+  kind: "managed" | "pin" | "readme" | "section" | "seeded" | "stamp";
   path: string;
   detail: string;
   /**
    * Whether the finding must stop a pull request from merging rather than being
-   * repaired by `standards apply`. Exactly one finding is blocking: the version
-   * stamp mismatch in the direction `manifest.currentVersion < meta.standards`,
-   * where the installed CLI is older than the repository it is checking and
-   * every other verdict it produces is computed against the wrong manifest.
+   * repaired by `standards apply`. Blocking findings form the alignment class,
+   * which has two members:
+   *
+   * - the version stamp mismatch in the direction
+   *   `manifest.currentVersion < meta.standards`, where the installed CLI is
+   *   older than the repository it is checking and every other verdict it
+   *   produces is computed against the wrong manifest;
+   * - a `pin` finding: a `package.json` declares `@sebastian-software/standards`
+   *   with anything but a bare exact version literal, or a repository with a
+   *   standards CI lane declares it nowhere. `package.json` is neither managed
+   *   nor seeded, so `apply` cannot repair it.
+   *
+   * Exit code and write refusal are separate properties. Both members make
+   * `standards check` exit `3`; only the stamp mismatch makes `apply` and `sync`
+   * refuse to write, because only it means the references themselves are wrong.
    * Every other finding — managed, seeded, section, the repository-behind
    * direction of the stamp check and the missing-platform stamp finding — is
    * non-blocking: `standards apply` or a documented migration step repairs it.
@@ -110,8 +123,19 @@ function hasPlatformScopedEntries(scopes: ScopeSpec[]): boolean {
  * Exported because `apply` and `sync` report the very same mismatch when they
  * refuse to touch a repository stamped ahead of them. One builder keeps the
  * three commands from drifting into three different wordings for one defect.
+ *
+ * `displaySpecifier` is the declared `@sebastian-software/standards` specifier
+ * in its **already-redacted** form, as `inspectPin` produces it — never a raw
+ * specifier, because this detail reaches stdout from all three commands. When
+ * it is not a bare exact version literal, the CLI-behind detail names it and
+ * the required form: raising a range or a `catalog:` reference is not a step
+ * anybody can follow. `undefined` keeps the wording unchanged.
  */
-export function stampFinding(stamped: number, current: number): Finding | undefined {
+export function stampFinding(
+  stamped: number,
+  current: number,
+  displaySpecifier: string | undefined,
+): Finding | undefined {
   if (stamped === current) {
     return undefined;
   }
@@ -123,10 +147,14 @@ export function stampFinding(stamped: number, current: number): Finding | undefi
       blocking: false,
     };
   }
+  const shape =
+    displaySpecifier === undefined || isExactVersionLiteral(displaySpecifier)
+      ? ""
+      : ` The declared specifier is \`${displaySpecifier}\`, which is not a bare exact version literal — declare the pin as one (for example \`0.11.1\`).`;
   return {
     kind: "stamp",
     path: ".repometa.json",
-    detail: `standards version is ${String(stamped)}, the installed CLI ships ${String(current)} — the installed CLI is behind the repository; every other finding of this run was computed against the wrong manifest. Raise the \`@sebastian-software/standards\` pin to the release whose manifest is version ${String(stamped)} and refresh the lockfile, then re-run.`,
+    detail: `standards version is ${String(stamped)}, the installed CLI ships ${String(current)} — the installed CLI is behind the repository; every other finding of this run was computed against the wrong manifest. Raise the \`@sebastian-software/standards\` pin to the release whose manifest is version ${String(stamped)} and refresh the lockfile, then re-run.${shape}`,
     blocking: true,
   };
 }
@@ -135,7 +163,13 @@ export function runCheck(cwd: string, currentYear: number): Finding[] {
   const context = createContext(cwd, currentYear);
   const findings: Finding[] = [];
 
-  const stamp = stampFinding(context.meta.standards, context.manifest.currentVersion);
+  const pin = inspectPin(cwd, context.meta, loadCliName(context.packageRoot));
+
+  const stamp = stampFinding(
+    context.meta.standards,
+    context.manifest.currentVersion,
+    pin.displaySpecifier,
+  );
   if (stamp !== undefined) {
     findings.push(stamp);
   }
@@ -149,6 +183,9 @@ export function runCheck(cwd: string, currentYear: number): Finding[] {
       blocking: false,
     });
   }
+
+  // After the stamp block, so a stamp finding stays first.
+  findings.push(...pin.findings);
 
   if (isGeneratedReadme(context.meta)) {
     findings.push(

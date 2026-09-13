@@ -1,6 +1,6 @@
 import type { AgentName } from "./agent.js";
 import type { InitOptions, Visibility } from "./init.js";
-import type { Platform } from "./repo.js";
+import type { Platform, RepoMeta } from "./repo.js";
 
 import { AGENTS, buildPrompt, runAgent } from "./agent.js";
 import { runApply } from "./apply.js";
@@ -13,7 +13,8 @@ import {
   parseVisibilityFlag,
   runInit,
 } from "./init.js";
-import { getPackageRoot, loadManifest } from "./manifest.js";
+import { getPackageRoot, loadCliName, loadManifest } from "./manifest.js";
+import { inspectPin } from "./pin.js";
 import { detectScopes, readRepoMeta } from "./repo.js";
 import {
   checkExitCode,
@@ -32,7 +33,9 @@ Commands:
   check   Report drift between this repository and the org standards
           [--json: write one JSON object to stdout instead of prose]
           Exit codes: 0 clean, 1 non-blocking findings, 3 at least one blocking
-          finding (the installed CLI is older than the repository's stamp)
+          finding — the alignment class: the installed CLI is older than the
+          repository's stamp, or the @sebastian-software/standards pin is not a
+          bare exact version literal (apply does not repair the pin)
   apply   Write managed files, seed missing ones, update branding sections, bump the stamp
           [--from-version <int>: explicit baseline for pending-marker selection]
           [--emit-pending <path>: write a JSON marker describing pending judgement work]
@@ -42,6 +45,7 @@ Commands:
 apply and sync write nothing and exit 3 when the installed CLI is older than the
 repository's stamp, because they cannot validate what they would change; pass
 --from-version to apply for the Renovate path, where that stamp is legitimate.
+A pin that is not an exact version literal alone does not stop apply or sync.
 `;
 
 function getCwd(args: string[]): string {
@@ -179,16 +183,31 @@ function reportInitResult(
   out("Next: run `standards apply` to populate managed and seeded files.");
 }
 
+/**
+ * The declared specifier `reportStaleCli` names. It is only printed when the
+ * CLI is behind the repository's stamp, so the `package.json` walk runs only
+ * then, and every other `apply` and `sync` run stays as cheap as before.
+ */
+function staleDisplaySpecifier(cwd: string, meta: RepoMeta, current: number): string | undefined {
+  return meta.standards > current
+    ? inspectPin(cwd, meta, loadCliName(getPackageRoot())).displaySpecifier
+    : undefined;
+}
+
 function applyCommand(cwd: string, currentYear: number, args: string[]): void {
   const explicitFromVersion = getFromVersion(args);
   const emitPending = getEmitPending(args);
   const meta = readRepoMeta(cwd);
   const effectiveFromVersion = explicitFromVersion ?? meta.standards;
 
-  const current = loadManifest(getPackageRoot()).currentVersion;
+  const packageRoot = getPackageRoot();
+  const current = loadManifest(packageRoot).currentVersion;
   // `--from-version` is the Renovate path, where the stamp is legitimately
   // raised ahead of the `dlx`-resolved CLI and self-healing has to keep working.
-  if (explicitFromVersion === undefined && reportStaleCli(meta.standards, current)) {
+  if (
+    explicitFromVersion === undefined &&
+    reportStaleCli(meta.standards, current, staleDisplaySpecifier(cwd, meta, current))
+  ) {
     return;
   }
 
@@ -241,7 +260,13 @@ function syncCommand(cwd: string, currentYear: number, args: string[]): void {
 
   // Stop before `apply` and before the agent: a CLI that cannot validate this
   // repository must not dispatch an agent to change it either.
-  if (reportStaleCli(fromVersion, manifest.currentVersion)) {
+  if (
+    reportStaleCli(
+      fromVersion,
+      manifest.currentVersion,
+      staleDisplaySpecifier(cwd, meta, manifest.currentVersion),
+    )
+  ) {
     return;
   }
 
