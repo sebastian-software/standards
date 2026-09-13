@@ -97,7 +97,10 @@ for the full step-by-step procedure.
   the root `.prettierignore` — a workspace's entries rewritten relative to the
   root, because the seeded CI formats from there — and reports that file as
   `created` or `appended`. Keep those entries; do not move them back into
-  `.oxfmtrc.json`.
+  `.oxfmtrc.json`. A negation that re-includes a path one of the moved
+  entries excludes keeps working; one that re-includes a path a managed
+  pattern excludes cannot be kept, because oxfmt applies the two files as
+  separate layers — format that file instead.
 - **Seeded files are owned by the repo.** Do not overwrite local adaptations —
   merge the intent of the change into them instead.
 - **Every content change to a seeded file requires a judgement step in

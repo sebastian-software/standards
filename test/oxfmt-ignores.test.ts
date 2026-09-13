@@ -21,6 +21,16 @@ describe("extraIgnorePatterns", () => {
   });
 });
 
+describe("negations", () => {
+  it("keep their order behind the pattern they re-include from", () => {
+    const actual = JSON.stringify({ ignorePatterns: ["dist", "gen/*", "!gen/keep.ts"] });
+    const patterns = extraIgnorePatterns(actual, REFERENCE);
+
+    expect(patterns).toStrictEqual(["gen/*", "!gen/keep.ts"]);
+    expect(mergeIgnoreFile(undefined, patterns)).toBe(`${HEADER}\ngen/*\n!gen/keep.ts\n`);
+  });
+});
+
 describe("scopeToDirectory", () => {
   it("keeps a root pattern unchanged", () => {
     expect(scopeToDirectory("dist", "")).toBe("dist");

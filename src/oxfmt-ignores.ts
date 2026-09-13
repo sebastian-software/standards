@@ -9,6 +9,13 @@
  * from the repository root, and a `.prettierignore` inside a workspace is not
  * read from there, so every entry — including one from a workspace's own oxfmt
  * config — moves into the root file, rewritten relative to the root.
+ *
+ * A negation moves too. It keeps working when it re-includes a path that one of
+ * the moved patterns excludes, because both then sit in the same file. A
+ * negation that re-includes a path a managed pattern excludes cannot be kept
+ * anywhere: oxfmt applies `ignorePatterns` and `.prettierignore` as separate
+ * layers, and the managed config carries no repository lines. That path stays
+ * excluded after `apply`; formatting the file is the way out.
  */
 
 export const OXFMT_CONFIG = ".oxfmtrc.json";
