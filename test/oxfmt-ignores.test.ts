@@ -1,6 +1,12 @@
 import { describe, expect, it } from "vitest";
 
-import { extraIgnorePatterns, mergeIgnoreFile, scopeToDirectory } from "../src/oxfmt-ignores.js";
+import {
+  extraIgnorePatterns,
+  mergeIgnoreFile,
+  partitionIgnorePatterns,
+  planIgnoreMigration,
+  scopeToDirectory,
+} from "../src/oxfmt-ignores.js";
 
 const REFERENCE = `${JSON.stringify({ ignorePatterns: ["dist", "coverage"] })}\n`;
 const HEADER = "# Moved from .oxfmtrc.json by `standards apply`.";
@@ -28,6 +34,70 @@ describe("negations", () => {
 
     expect(patterns).toStrictEqual(["gen/*", "!gen/keep.ts"]);
     expect(mergeIgnoreFile(undefined, patterns)).toBe(`${HEADER}\ngen/*\n!gen/keep.ts\n`);
+  });
+});
+
+const UNMOVED =
+  "# Not moved from .oxfmtrc.json by `standards apply`: each would change which files are checked.";
+const MANAGED = ["dist", "**/dist", "coverage"];
+
+describe("partitionIgnorePatterns", () => {
+  it("moves every pattern when no deeper config exists", () => {
+    expect(partitionIgnorePatterns([".limen.yaml", "**/_generated/"], MANAGED, [])).toStrictEqual({
+      moved: [".limen.yaml", "**/_generated/"],
+      unmoved: [],
+    });
+  });
+
+  it("keeps back a pattern that could reach a deeper config", () => {
+    const patterns = [
+      ".limen.yaml",
+      "**/_generated/",
+      "/build",
+      ".limen/**/*.sops",
+      "packages",
+      "packages/*/out",
+      "packages/web/out",
+    ];
+
+    expect(partitionIgnorePatterns(patterns, MANAGED, ["packages/app"])).toStrictEqual({
+      moved: ["/build", ".limen/**/*.sops", "packages/web/out"],
+      unmoved: [".limen.yaml", "**/_generated/", "packages", "packages/*/out"],
+    });
+  });
+
+  it("moves a negation only when no managed pattern could exclude its target", () => {
+    const patterns = ["gen/*", "!gen/keep.ts", "!dist/keep.ts", "!keep.ts"];
+
+    expect(partitionIgnorePatterns(patterns, MANAGED, [])).toStrictEqual({
+      moved: ["gen/*", "!gen/keep.ts"],
+      unmoved: ["!dist/keep.ts", "!keep.ts"],
+    });
+  });
+});
+
+describe("planIgnoreMigration", () => {
+  const reference = `${JSON.stringify({ ignorePatterns: MANAGED })}\n`;
+  const actual = JSON.stringify({ ignorePatterns: [...MANAGED, "out", "src/legacy.ts"] });
+
+  it("checks a workspace's entries only against configs below that workspace", () => {
+    expect(
+      planIgnoreMigration({
+        actual,
+        reference,
+        dir: "packages/app",
+        configDirs: ["packages/app", "packages/web", "packages/app/sub"],
+      }),
+    ).toStrictEqual({
+      moved: ["packages/app/src/legacy.ts"],
+      unmoved: ["packages/app/**/out"],
+    });
+  });
+
+  it("checks root entries against every workspace config", () => {
+    expect(
+      planIgnoreMigration({ actual, reference, dir: "", configDirs: ["packages/app"] }),
+    ).toStrictEqual({ moved: ["src/legacy.ts"], unmoved: ["out"] });
   });
 });
 
@@ -60,6 +130,13 @@ describe("mergeIgnoreFile", () => {
 
   it("changes nothing when every pattern is already present", () => {
     expect(mergeIgnoreFile("a\n  b\n", ["a", "b"])).toBeUndefined();
+  });
+
+  it("lists unmoved patterns as comments under their own header", () => {
+    const merged = `${HEADER}\n/build\n\n${UNMOVED}\n# .limen.yaml\n`;
+
+    expect(mergeIgnoreFile(undefined, ["/build"], [".limen.yaml"])).toBe(merged);
+    expect(mergeIgnoreFile(merged, ["/build"], [".limen.yaml"])).toBeUndefined();
   });
 
   it("does not repeat the header on a later migration", () => {

@@ -722,6 +722,52 @@ describe("nested node workspaces", () => {
     );
   });
 
+  it("does not move a root ignore that could reach a workspace with its own config", () => {
+    const cwd = createFixtureRepo();
+    mkdirSync(join(cwd, "packages", "app"), { recursive: true });
+    writeFileSync(join(cwd, "packages", "app", "package.json"), "{}\n");
+    writeFileSync(
+      join(cwd, ".repometa.json"),
+      `${JSON.stringify({ standards: 0, visibility: "oss", since: 2020, platform: "github", workspaces: ["packages/app"] }, undefined, 2)}\n`,
+    );
+    runApply(cwd, YEAR);
+    const managed = readFileSync(join(cwd, ".oxfmtrc.json"), "utf8");
+    writeFileSync(
+      join(cwd, ".oxfmtrc.json"),
+      withIgnorePatterns(managed, [".limen.yaml", "/build", ".limen/**/*.sops"]),
+    );
+
+    expect(runApply(cwd, YEAR)).toContainEqual({ path: ".prettierignore", action: "created" });
+    expect(readFileSync(join(cwd, ".prettierignore"), "utf8")).toBe(
+      "# Moved from .oxfmtrc.json by `standards apply`.\n/build\n.limen/**/*.sops\n\n" +
+        "# Not moved from .oxfmtrc.json by `standards apply`: each would change which files are checked.\n" +
+        "# .limen.yaml\n",
+    );
+    expect(readFileSync(join(cwd, ".oxfmtrc.json"), "utf8")).toBe(managed);
+  });
+
+  it("moves a root ignore when the workspace config did not exist before the run", () => {
+    const cwd = createFixtureRepo();
+    mkdirSync(join(cwd, "packages", "app"), { recursive: true });
+    writeFileSync(join(cwd, "packages", "app", "package.json"), "{}\n");
+    writeFileSync(
+      join(cwd, ".repometa.json"),
+      `${JSON.stringify({ standards: 0, visibility: "oss", since: 2020, platform: "github", workspaces: ["packages/app"] }, undefined, 2)}\n`,
+    );
+    const reference = readFileSync(
+      new URL("../reference/node/oxfmtrc.json", import.meta.url),
+      "utf8",
+    );
+    writeFileSync(join(cwd, ".oxfmtrc.json"), withIgnorePatterns(reference, [".limen.yaml"]));
+
+    runApply(cwd, YEAR);
+
+    expect(existsSync(join(cwd, "packages", "app", ".oxfmtrc.json"))).toBe(true);
+    expect(readFileSync(join(cwd, ".prettierignore"), "utf8")).toBe(
+      "# Moved from .oxfmtrc.json by `standards apply`.\n.limen.yaml\n",
+    );
+  });
+
   it("reports a workspace file with its full path", () => {
     const cwd = createWorkspaceRepo(["node"]);
     runApply(cwd, YEAR);

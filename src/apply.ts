@@ -2,16 +2,16 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 
 import type { ScopeSpec } from "./manifest.js";
+import type { IgnoreMigration } from "./oxfmt-ignores.js";
 import type { RepoMeta } from "./repo.js";
 import type { SyncContext } from "./sync.js";
 
 import { upsertSection } from "./branding.js";
 import {
-  extraIgnorePatterns,
   IGNORE_FILE,
   mergeIgnoreFile,
   OXFMT_CONFIG,
-  scopeToDirectory,
+  planIgnoreMigration,
 } from "./oxfmt-ignores.js";
 import { readmeMigrationIssues } from "./readme.js";
 import { isGeneratedReadme, writeRepoMeta } from "./repo.js";
@@ -40,9 +40,9 @@ function writeTarget(cwd: string, target: string, content: string): void {
  * re-enable formatting for files the repository had excluded. See
  * `src/oxfmt-ignores.ts` for where the entries go and why.
  */
-function preserveOxfmtIgnores(context: SyncContext, patterns: string[]): Change[] {
+function preserveOxfmtIgnores(context: SyncContext, migration: IgnoreMigration): Change[] {
   const existing = readTarget(context, IGNORE_FILE);
-  const content = mergeIgnoreFile(existing, patterns);
+  const content = mergeIgnoreFile(existing, migration.moved, migration.unmoved);
   if (content === undefined) return [];
   writeTarget(context.cwd, IGNORE_FILE, content);
   return [{ path: IGNORE_FILE, action: existing === undefined ? "created" : "appended" }];
@@ -66,7 +66,11 @@ function mergeIgnoreFileChanges(changes: Change[]): Change[] {
   });
 }
 
-function applyManaged(context: SyncContext, scope: ScopeSpec, dir: string): Change[] {
+/** Where a unit's entries are written, plus the oxfmt configs that existed before this run. */
+type Placement = { dir: string; configDirs: string[] };
+
+function applyManaged(context: SyncContext, scope: ScopeSpec, placement: Placement): Change[] {
+  const { dir, configDirs } = placement;
   return scope.managed
     .filter((mapping) => matchesPlatform(mapping.platform, context.meta.platform))
     .flatMap((mapping) => {
@@ -80,9 +84,7 @@ function applyManaged(context: SyncContext, scope: ScopeSpec, dir: string): Chan
         mapping.target === OXFMT_CONFIG
           ? preserveOxfmtIgnores(
               context,
-              extraIgnorePatterns(actual, reference).map((pattern) =>
-                scopeToDirectory(pattern, dir),
-              ),
+              planIgnoreMigration({ actual, reference, dir, configDirs }),
             )
           : [];
       writeTarget(context.cwd, target, reference);
@@ -193,11 +195,18 @@ export function runApply(cwd: string, currentYear: number, options?: ApplyOption
   validateReadmeMigration(context);
 
   const changes: Change[] = [];
+  // Read before any unit writes, so a workspace config this run creates never
+  // counts as one the repository's own ignore patterns used to stop at.
+  const configDirs = context.units
+    .filter(
+      (unit) => unit.dir !== "" && readTarget(context, join(unit.dir, OXFMT_CONFIG)) !== undefined,
+    )
+    .map((unit) => unit.dir);
 
   for (const unit of context.units) {
     for (const scope of unit.scopes) {
       changes.push(
-        ...applyManaged(context, scope, unit.dir),
+        ...applyManaged(context, scope, { dir: unit.dir, configDirs }),
         ...applySeeded(context, scope, unit.dir),
         ...applySections(context, scope),
       );
