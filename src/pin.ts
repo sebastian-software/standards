@@ -33,14 +33,35 @@ import { workspaceDirs } from "./sync.js";
  * compare the match to the whole specifier, so the alphanumeric prerelease
  * branch comes first: in the unanchored guard, a numeric branch tried first
  * would stop `1.2.3-0a` at `1.2.3-0`.
+ *
+ * The grammar alone is not enough: `isExactVersionLiteral` also holds a pin to
+ * npm's own limits, which the guards repeat.
  */
 export const EXACT_VERSION_LITERAL =
   // eslint-disable-next-line security/detect-unsafe-regex, regexp/prefer-d, regexp/no-useless-character-class -- anchored; the nested `(?:[.]identifier)*` repetition is unambiguous because only `.` separates repeated identifiers and `.` belongs to no identifier class, and the three prerelease branches are disjoint (letter or hyphen, `0`, nonzero-led digits), so matching stays linear on any input. `[0-9]`, `[.]` and `[+]` keep the text byte-identical to the CI guards, whose double-quoted `node -p` body admits no backslash.
   /^(?:0|[1-9][0-9]*)[.](?:0|[1-9][0-9]*)[.](?:0|[1-9][0-9]*)(?:-(?:[0-9]*[A-Za-z-][0-9A-Za-z-]*|0|[1-9][0-9]*)(?:[.](?:[0-9]*[A-Za-z-][0-9A-Za-z-]*|0|[1-9][0-9]*))*)?(?:[+][0-9A-Za-z-]+(?:[.][0-9A-Za-z-]+)*)?$/u;
 
-/** Whether a declared specifier is a bare exact version literal. */
+/**
+ * The longest version string npm's `semver` parses. A longer literal is no
+ * version to `npm-package-arg`, which resolves it as a mutable dist-tag.
+ */
+export const EXACT_VERSION_MAX_LENGTH = 256;
+
+/**
+ * Whether a declared specifier is a bare exact version literal npm resolves as
+ * a version: the SemVer 2.0.0 grammar, at most `EXACT_VERSION_MAX_LENGTH`
+ * characters, and a major, minor and patch no greater than
+ * `Number.MAX_SAFE_INTEGER`. npm caps only those three; numeric prerelease and
+ * build identifiers stay uncapped, as they are in `semver`.
+ */
 export function isExactVersionLiteral(specifier: string): boolean {
-  return EXACT_VERSION_LITERAL.test(specifier);
+  return (
+    specifier.length <= EXACT_VERSION_MAX_LENGTH &&
+    EXACT_VERSION_LITERAL.test(specifier) &&
+    (specifier.split(/[+-]/u, 1)[0] ?? "")
+      .split(".")
+      .every((part) => Number(part) <= Number.MAX_SAFE_INTEGER)
+  );
 }
 
 /** Whether a code point is a C0 control, DEL, or a C1 control. */

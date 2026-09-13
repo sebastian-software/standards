@@ -38,6 +38,7 @@ import {
 import { loadManifest, getPackageRoot as standardsRoot } from "../src/manifest.js";
 import {
   EXACT_VERSION_LITERAL,
+  EXACT_VERSION_MAX_LENGTH,
   hasStandardsLane,
   inspectPin,
   isExactVersionLiteral,
@@ -2247,6 +2248,18 @@ const EXACT_PIN_SHAPES = [
   "1.2.3+exp.sha.5114f85",
   // A hyphen makes `-01` alphanumeric, so its leading zero is legal.
   "1.2.3--01",
+  // npm caps major, minor and patch at `Number.MAX_SAFE_INTEGER`, not below it.
+  "9007199254740991.0.0",
+  "0.9007199254740991.0",
+  "0.0.9007199254740991",
+  // Numeric prerelease and build identifiers stay uncapped.
+  "1.2.3-9007199254740992",
+  "1.2.3-99999999999999999999",
+  "1.2.3+99999999999999999999",
+  // 256 characters, the longest version npm parses.
+  `1.2.3-${"a".repeat(250)}`,
+  `1.2.3+${"b".repeat(250)}`,
+  `1.2.3-rc.1+${"b".repeat(245)}`,
 ];
 
 /**
@@ -2263,8 +2276,25 @@ const MALFORMED_PIN_SHAPES = [
   "1.2.3-a.01",
 ];
 
+/**
+ * Grammatical literals beyond npm's limits, which `npm-package-arg` resolves as
+ * mutable dist-tags: a major, minor or patch above `Number.MAX_SAFE_INTEGER`,
+ * or more than 256 characters.
+ */
+const NPM_LIMIT_PIN_SHAPES = [
+  "9007199254740992.0.0",
+  "0.9007199254740992.0",
+  "0.0.9007199254740992",
+  "1.2.99999999999999999999",
+  "10000000000000000.0.0",
+  `1.2.3-${"a".repeat(251)}`,
+  `1.2.3+${"b".repeat(251)}`,
+  `1.2.3-rc.1+${"b".repeat(246)}`,
+];
+
 const NON_EXACT_PIN_SHAPES = [
   ...MALFORMED_PIN_SHAPES,
+  ...NPM_LIMIT_PIN_SHAPES,
   "1.2.3-",
   "1.2.3+",
   "1.2.3+a..b",
@@ -3349,6 +3379,8 @@ describe("seeded CI guards for alignment and the blocked marker", () => {
 
     expect(EXACT_VERSION_LITERAL.source.endsWith("$")).toBe(true);
     expect(literal).toBe(EXACT_VERSION_LITERAL.source.slice(0, -1));
+    expect(guard).toContain(`spec.length <= ${String(EXACT_VERSION_MAX_LENGTH)}`);
+    expect(guard).toContain("Number(part) <= Number.MAX_SAFE_INTEGER");
   });
 
   it.each(nodeWorkflows.flatMap((file) => NON_EXACT_PIN_SHAPES.map((spec) => [file, spec])))(

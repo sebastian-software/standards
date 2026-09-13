@@ -85,7 +85,11 @@ jobs:
       # then read for the pin itself: every package.json that declares the CLI
       # must declare a bare exact version literal, and at least one must declare
       # it — a range, tag, alias or `catalog:` reference cannot be raised to a
-      # release. This also catches a CLI too old to report the pin shape itself.
+      # release. Like the CLI, the literal also stays within npm's limits — at
+      # most 256 characters, and a major, minor and patch no greater than
+      # Number.MAX_SAFE_INTEGER — because npm resolves a longer or larger one as
+      # a mutable dist-tag. This also catches a CLI too old to report the pin
+      # shape itself.
       # Deliberately simpler than the CLI and a superset of it: the guard reads
       # the raw `workspaces` list without the CLI's symlink and normalization
       # checks, and exempts the CLI's own repository by the literal package name.
@@ -109,7 +113,7 @@ jobs:
             const file = join(dir, 'package.json');
             try { const pkg = JSON.parse(readFileSync(file, 'utf8')); return isRecord(pkg) ? [{ file: relative(process.cwd(), file), pkg }] : []; } catch { return []; }
           });
-          const exact = (spec) => typeof spec === 'string' && /^(?:0|[1-9][0-9]*)[.](?:0|[1-9][0-9]*)[.](?:0|[1-9][0-9]*)(?:-(?:[0-9]*[A-Za-z-][0-9A-Za-z-]*|0|[1-9][0-9]*)(?:[.](?:[0-9]*[A-Za-z-][0-9A-Za-z-]*|0|[1-9][0-9]*))*)?(?:[+][0-9A-Za-z-]+(?:[.][0-9A-Za-z-]+)*)?/.exec(spec)?.[0] === spec;
+          const exact = (spec) => typeof spec === 'string' && /^(?:0|[1-9][0-9]*)[.](?:0|[1-9][0-9]*)[.](?:0|[1-9][0-9]*)(?:-(?:[0-9]*[A-Za-z-][0-9A-Za-z-]*|0|[1-9][0-9]*)(?:[.](?:[0-9]*[A-Za-z-][0-9A-Za-z-]*|0|[1-9][0-9]*))*)?(?:[+][0-9A-Za-z-]+(?:[.][0-9A-Za-z-]+)*)?/.exec(spec)?.[0] === spec && spec.length <= 256 && spec.split(/[+-]/, 1)[0].split('.').every((part) => Number(part) <= Number.MAX_SAFE_INTEGER);
           const shown = (spec) => {
             const text = typeof spec === 'string' ? spec : JSON.stringify(spec);
             const reduced = text.includes('://') ? text.slice(0, text.indexOf('://') + 1) : text;
