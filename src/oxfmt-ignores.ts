@@ -1,3 +1,6 @@
+import { readdirSync } from "node:fs";
+import { join } from "node:path";
+
 /**
  * The oxfmt config is managed byte-exact, so `standards apply` overwrites any
  * `ignorePatterns` entry a repository added to it. Dropping those entries turns
@@ -21,9 +24,10 @@
  * deeper directory with its own config.
  *
  * So a config with any negation moves nothing, and a positive entry that could
- * reach a workspace whose config existed before this run stays as well. Every
- * entry that does not move is written below the moved ones as a comment, so the
- * drift pull request shows it and a person or the agent decides what to do.
+ * reach a directory whose own oxfmt config existed before this run — a declared
+ * workspace or any other — stays as well. Every entry that does not move is
+ * written below the moved ones as a comment, so the drift pull request shows it
+ * and a person or the agent decides what to do.
  */
 
 export const OXFMT_CONFIG = ".oxfmtrc.json";
@@ -42,9 +46,34 @@ export type IgnoreMigrationInput = {
   reference: string;
   /** The unit the config belongs to, `""` for the repository root. */
   dir: string;
-  /** Every workspace directory whose oxfmt config existed before this run. */
+  /** Every directory below the root that held an oxfmt config of its own before this run. */
   configDirs: string[];
 };
+
+/** The file names oxfmt picks up as a nested config when it formats from the root. */
+const NESTED_CONFIG_FILES = new Set([".oxfmtrc.json", ".oxfmtrc.jsonc", "oxfmt.config.ts"]);
+const SKIPPED_DIRECTORIES = new Set([".git", "node_modules"]);
+
+function childPath(dir: string, name: string): string {
+  return dir === "" ? name : `${dir}/${name}`;
+}
+
+/**
+ * Every directory below `cwd` that holds an oxfmt config of its own, declared as
+ * a workspace or not: a pattern from a config above it never reached into it.
+ * `.git` and `node_modules` are not searched and symbolic links are not followed.
+ * A directory `.gitignore` excludes is still searched, which can only keep a
+ * pattern back, never move one that has to stay.
+ */
+export function findNestedConfigDirs(cwd: string, dir = ""): string[] {
+  const entries = readdirSync(join(cwd, dir), { withFileTypes: true });
+  const hasOwnConfig =
+    dir !== "" && entries.some((entry) => entry.isFile() && NESTED_CONFIG_FILES.has(entry.name));
+  const nested = entries
+    .filter((entry) => entry.isDirectory() && !SKIPPED_DIRECTORIES.has(entry.name))
+    .flatMap((entry) => findNestedConfigDirs(cwd, childPath(dir, entry.name)));
+  return hasOwnConfig ? [dir, ...nested] : nested;
+}
 
 function ignorePatternsOf(content: string | undefined): string[] | undefined {
   if (content === undefined) return undefined;

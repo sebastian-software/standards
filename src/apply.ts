@@ -8,6 +8,7 @@ import type { SyncContext } from "./sync.js";
 
 import { upsertSection } from "./branding.js";
 import {
+  findNestedConfigDirs,
   IGNORE_FILE,
   mergeIgnoreFile,
   OXFMT_CONFIG,
@@ -195,13 +196,9 @@ export function runApply(cwd: string, currentYear: number, options?: ApplyOption
   validateReadmeMigration(context);
 
   const changes: Change[] = [];
-  // Read before any unit writes, so a workspace config this run creates never
+  // Searched before any unit writes, so a workspace config this run creates never
   // counts as one the repository's own ignore patterns used to stop at.
-  const configDirs = context.units
-    .filter(
-      (unit) => unit.dir !== "" && readTarget(context, join(unit.dir, OXFMT_CONFIG)) !== undefined,
-    )
-    .map((unit) => unit.dir);
+  const configDirs = findNestedConfigDirs(cwd);
 
   for (const unit of context.units) {
     for (const scope of unit.scopes) {

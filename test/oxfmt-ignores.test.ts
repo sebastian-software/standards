@@ -1,7 +1,11 @@
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { dirname, join } from "node:path";
 import { describe, expect, it } from "vitest";
 
 import {
   extraIgnorePatterns,
+  findNestedConfigDirs,
   mergeIgnoreFile,
   partitionIgnorePatterns,
   planIgnoreMigration,
@@ -40,6 +44,29 @@ describe("extraIgnorePatterns", () => {
     for (const actual of [undefined, "not json", "null", "[]", "{}", '{"ignorePatterns":"dist"}']) {
       expect(extraIgnorePatterns(actual, REFERENCE)).toStrictEqual([]);
     }
+  });
+});
+
+describe("findNestedConfigDirs", () => {
+  it("finds every nested config oxfmt picks up, declared as a workspace or not", () => {
+    const cwd = mkdtempSync(join(tmpdir(), "standards-oxfmt-"));
+    const files = {
+      ".oxfmtrc.json": "{}\n",
+      "packages/app/.oxfmtrc.json": "{}\n",
+      "vendor/lib/.oxfmtrc.jsonc": "{}\n",
+      "tools/fmt/oxfmt.config.ts": "export default {};\n",
+      "tools/other/oxfmt.config.json": "{}\n",
+      "node_modules/pkg/.oxfmtrc.json": "{}\n",
+      "src/index.ts": "export {};\n",
+    };
+    for (const [path, content] of Object.entries(files)) {
+      mkdirSync(dirname(join(cwd, path)), { recursive: true });
+      writeFileSync(join(cwd, path), content);
+    }
+
+    expect(new Set(findNestedConfigDirs(cwd))).toStrictEqual(
+      new Set(["packages/app", "vendor/lib", "tools/fmt"]),
+    );
   });
 });
 

@@ -767,6 +767,23 @@ describe("nested node workspaces", () => {
     expect(readFileSync(join(cwd, ".oxfmtrc.json"), "utf8")).toBe(managed);
   });
 
+  it("does not move a root ignore that could reach an undeclared directory with its own oxfmt config", () => {
+    const cwd = createFixtureRepo();
+    runApply(cwd, YEAR);
+    mkdirSync(join(cwd, "vendor", "lib"), { recursive: true });
+    writeFileSync(join(cwd, "vendor", "lib", ".oxfmtrc.jsonc"), "{}\n");
+    const managed = readFileSync(join(cwd, ".oxfmtrc.json"), "utf8");
+    writeFileSync(join(cwd, ".oxfmtrc.json"), withIgnorePatterns(managed, ["out", "/build"]));
+
+    runApply(cwd, YEAR);
+
+    expect(readFileSync(join(cwd, ".prettierignore"), "utf8")).toBe(
+      "# Moved from .oxfmtrc.json by `standards apply`.\n/build\n\n" +
+        "# Not moved from .oxfmtrc.json by `standards apply`: each would change which files are checked.\n" +
+        "# out\n",
+    );
+  });
+
   it("moves a root ignore when the workspace config did not exist before the run", () => {
     const cwd = createFixtureRepo();
     mkdirSync(join(cwd, "packages", "app"), { recursive: true });

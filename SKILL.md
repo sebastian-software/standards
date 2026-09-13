@@ -99,7 +99,8 @@ for the full step-by-step procedure.
   `created` or `appended`. Keep those entries; do not move them back into
   `.oxfmtrc.json`. Only entries whose effect provably stays the same move:
   a config that contains any negation moves nothing, and a positive entry
-  that could reach a workspace with its own config stays too. Those are
+  that could reach any directory with its own oxfmt config, declared as a
+  workspace or not, stays too. Those are
   listed as comments under a "Not moved" header instead. Decide on each of
   them in the drift pull request — format the files, anchor the pattern, or
   drop it.
