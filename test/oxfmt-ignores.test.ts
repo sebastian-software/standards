@@ -48,14 +48,17 @@ describe("extraIgnorePatterns", () => {
 });
 
 describe("findNestedConfigDirs", () => {
-  it("finds every nested config oxfmt picks up, declared as a workspace or not", () => {
+  it("finds every nested config under any name oxfmt loads, declared as a workspace or not", () => {
     const cwd = mkdtempSync(join(tmpdir(), "standards-oxfmt-"));
     const files = {
       ".oxfmtrc.json": "{}\n",
       "packages/app/.oxfmtrc.json": "{}\n",
       "vendor/lib/.oxfmtrc.jsonc": "{}\n",
       "tools/fmt/oxfmt.config.ts": "export default {};\n",
+      "tools/esm/oxfmt.config.mts": "export default {};\n",
       "tools/other/oxfmt.config.json": "{}\n",
+      "tools/rc/.oxfmtrc": "{}\n",
+      "docs/prettier.config.js": "export default {};\n",
       "node_modules/pkg/.oxfmtrc.json": "{}\n",
       "src/index.ts": "export {};\n",
     };
@@ -65,7 +68,7 @@ describe("findNestedConfigDirs", () => {
     }
 
     expect(new Set(findNestedConfigDirs(cwd))).toStrictEqual(
-      new Set(["packages/app", "vendor/lib", "tools/fmt"]),
+      new Set(["packages/app", "vendor/lib", "tools/fmt", "tools/esm", "tools/other"]),
     );
   });
 });

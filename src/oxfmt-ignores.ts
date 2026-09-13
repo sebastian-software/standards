@@ -50,8 +50,24 @@ export type IgnoreMigrationInput = {
   configDirs: string[];
 };
 
-/** The file names oxfmt picks up as a nested config when it formats from the root. */
-const NESTED_CONFIG_FILES = new Set([".oxfmtrc.json", ".oxfmtrc.jsonc", "oxfmt.config.ts"]);
+/**
+ * Every file name oxfmt loads a config from. Which of them it also picks up as a
+ * nested config grows with its version — `oxfmt.config.mts` joined in 0.66 — and
+ * a consumer's version is not ours to know, so all of them count. Finding a
+ * config oxfmt would ignore can only keep a pattern back, never move one that
+ * has to stay.
+ */
+const NESTED_CONFIG_FILES = new Set([
+  ".oxfmtrc.json",
+  ".oxfmtrc.jsonc",
+  "oxfmt.config.json",
+  "oxfmt.config.ts",
+  "oxfmt.config.mts",
+  "oxfmt.config.cts",
+  "oxfmt.config.js",
+  "oxfmt.config.mjs",
+  "oxfmt.config.cjs",
+]);
 const SKIPPED_DIRECTORIES = new Set([".git", "node_modules"]);
 
 function childPath(dir: string, name: string): string {
