@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.12.0](https://github.com/sebastian-software/standards/compare/standards-v0.11.1...standards-v0.12.0) (2026-09-13)
+
+
+### Features
+
+* verify that the standards CLI pin is an exact version literal ([#86](https://github.com/sebastian-software/standards/issues/86)) ([1d1ae4f](https://github.com/sebastian-software/standards/commit/1d1ae4fa89db708f7e3bcd148292097286b1c032))
+
+
+### Bug Fixes
+
+* **cli:** move repository-specific oxfmt ignores into .prettierignore on apply ([#88](https://github.com/sebastian-software/standards/issues/88)) ([d131536](https://github.com/sebastian-software/standards/commit/d1315367e70acd43cf24f93aa3a00f0582717a6a))
+
 ## [0.11.1](https://github.com/sebastian-software/standards/compare/standards-v0.11.0...standards-v0.11.1) (2026-09-11)
 
 
