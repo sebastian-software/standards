@@ -296,9 +296,8 @@ titled `chore(standards): v<N>`. It contains:
 **Agent run 1.** The external pull-mode agent picks the PR up on its
 own — see
 [SKILL.md#pull-mode-agent-wiring](../../SKILL.md#pull-mode-agent-wiring).
-A run takes several minutes; it ends with a summary comment, a pushed
-branch without `pending.json`, and the `standards:needs-agent` label
-removed. Do not tick Renovate's rebase/retry checkbox afterwards unless
+A run takes several minutes; it ends with a pushed branch without
+`pending.json` and the `standards:needs-agent` label removed. Do not tick Renovate's rebase/retry checkbox afterwards unless
 you mean to restart the migration: Renovate regenerates the branch, the
 agent's commits are lost, and run 1 repeats — see
 [SKILL.md#recreated-drift-branches](../../SKILL.md#recreated-drift-branches).
