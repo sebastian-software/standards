@@ -3,9 +3,9 @@
  * when it pushed a best-effort result it could not validate.
  *
  * The marker is written by the external agent, never by `standards apply`, and
- * it is not a run trigger: run 1 is still started by `.standards/pending.json`
- * plus the `standards:needs-agent` label, so a marker left behind can fail a
- * pull request but can never cause a retry loop. The seeded CI guard fails only
+ * it is not a run trigger: run 1 has work only while `.standards/pending.json`
+ * is on the branch, so a marker left behind can fail a pull request but can
+ * never cause a retry loop. The seeded CI guard fails only
  * on `blocking: true`; a non-blocking marker records context for a reviewer
  * while the repository's own lint, type, test and build lanes report those
  * failures themselves.
