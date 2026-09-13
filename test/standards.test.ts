@@ -726,7 +726,7 @@ describe("nested node workspaces", () => {
     expect(readFileSync(join(cwd, "node", "package.json"), "utf8")).toBe(PINNED_PACKAGE_JSON);
   });
 
-  it("moves a workspace's own oxfmt ignores into the root .prettierignore", () => {
+  it("moves a workspace's own oxfmt ignores into the root and the workspace .prettierignore", () => {
     const cwd = createWorkspaceRepo(["node"]);
     runApply(cwd, YEAR);
     const managed = readFileSync(join(cwd, "node", ".oxfmtrc.json"), "utf8");
@@ -737,14 +737,20 @@ describe("nested node workspaces", () => {
 
     expect(runApply(cwd, YEAR)).toStrictEqual([
       { path: ".prettierignore", action: "created" },
+      { path: join("node", ".prettierignore"), action: "created" },
       { path: join("node", ".oxfmtrc.json"), action: "updated" },
     ]);
     // The seeded CI formats from the root, where a workspace's own
-    // .prettierignore is never read.
+    // .prettierignore is never read, so the root file carries the entries
+    // relative to the root.
     expect(readFileSync(join(cwd, ".prettierignore"), "utf8")).toBe(
       "# Moved from .oxfmtrc.json by `standards apply`.\nnode/**/_generated/\nnode/src/legacy.ts\n",
     );
-    expect(existsSync(join(cwd, "node", ".prettierignore"))).toBe(false);
+    // oxfmt run inside the workspace reads only the workspace file, so it keeps
+    // the entries exactly as the workspace config had them.
+    expect(readFileSync(join(cwd, "node", ".prettierignore"), "utf8")).toBe(
+      "# Moved from .oxfmtrc.json by `standards apply`.\n_generated/\nsrc/legacy.ts\n",
+    );
   });
 
   it("reports the root .prettierignore once when several workspaces move ignores", () => {

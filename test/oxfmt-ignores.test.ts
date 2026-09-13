@@ -122,13 +122,14 @@ describe("planIgnoreMigration", () => {
     ).toStrictEqual({
       moved: ["packages/app/src/legacy.ts"],
       unmoved: ["packages/app/**/out"],
+      local: ["src/legacy.ts"],
     });
   });
 
   it("checks root entries against every workspace config", () => {
     expect(
       planIgnoreMigration({ actual, reference, dir: "", configDirs: ["packages/app"] }),
-    ).toStrictEqual({ moved: ["src/legacy.ts"], unmoved: ["out"] });
+    ).toStrictEqual({ moved: ["src/legacy.ts"], unmoved: ["out"], local: [] });
   });
 
   it("keeps a workspace config with a negation whole, rewritten relative to the root", () => {
@@ -136,7 +137,30 @@ describe("planIgnoreMigration", () => {
 
     expect(
       planIgnoreMigration({ actual: negated, reference, dir: "packages/app", configDirs: [] }),
-    ).toStrictEqual({ moved: [], unmoved: ["packages/app/gen/*", "!packages/app/gen/keep.ts"] });
+    ).toStrictEqual({
+      moved: [],
+      unmoved: ["packages/app/gen/*", "!packages/app/gen/keep.ts"],
+      local: [],
+    });
+  });
+
+  it("pairs every moved workspace entry with its workspace-relative form, in sequence", () => {
+    const mixed = JSON.stringify({
+      ignorePatterns: [...managed, "build/out", "out/cache", "src/legacy.ts", "build/out"],
+    });
+
+    expect(
+      planIgnoreMigration({
+        actual: mixed,
+        reference,
+        dir: "packages/app",
+        configDirs: ["packages/app/out"],
+      }),
+    ).toStrictEqual({
+      moved: ["packages/app/build/out", "packages/app/src/legacy.ts", "packages/app/build/out"],
+      unmoved: ["packages/app/out/cache"],
+      local: ["build/out", "src/legacy.ts", "build/out"],
+    });
   });
 });
 

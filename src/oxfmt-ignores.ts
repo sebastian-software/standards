@@ -11,7 +11,10 @@ import { join } from "node:path";
  * which oxfmt reads next to the directory it runs from. The seeded CI formats
  * from the repository root, and a `.prettierignore` inside a workspace is not
  * read from there, so every entry — including one from a workspace's own oxfmt
- * config — moves into the root file, rewritten relative to the root.
+ * config — moves into the root file, rewritten relative to the root. A
+ * workspace's moved entries are also kept, relative to the workspace, in that
+ * workspace's own `.prettierignore`: oxfmt reads the file only from the
+ * directory it runs in, so a run inside the workspace has to find them there.
  *
  * Moving must not change which files are checked, so entries move only when the
  * result is provably the same. oxfmt applies `ignorePatterns` and
@@ -37,7 +40,12 @@ const MIGRATION_COMMENT = "# Moved from .oxfmtrc.json by `standards apply`.";
 const UNMOVED_COMMENT =
   "# Not moved from .oxfmtrc.json by `standards apply`: each would change which files are checked.";
 
-export type IgnoreMigration = { moved: string[]; unmoved: string[] };
+export type IgnorePartition = { moved: string[]; unmoved: string[] };
+
+export type IgnoreMigration = {
+  /** The moved entries relative to their workspace, for its own `.prettierignore`; empty at the root. */
+  local: string[];
+} & IgnorePartition;
 
 export type IgnoreMigrationInput = {
   /** The repository's config before it is overwritten. */
@@ -171,7 +179,7 @@ function mayReach(pattern: string[], dir: string[]): boolean {
 export function partitionIgnorePatterns(
   patterns: string[],
   deeperConfigDirs: string[],
-): IgnoreMigration {
+): IgnorePartition {
   if (patterns.some((pattern) => pattern.startsWith("!"))) {
     return { moved: [], unmoved: [...patterns] };
   }
@@ -192,18 +200,32 @@ function normalizeDir(dir: string): string {
     .join("/");
 }
 
-/** What to do with the repository's own entries of one config being overwritten. */
+/**
+ * What to do with the repository's own entries of one config being overwritten.
+ * `local` repeats a workspace's moved entries in their original, workspace-relative
+ * form, in the same sequence, for the `.prettierignore` next to its config.
+ */
 export function planIgnoreMigration(input: IgnoreMigrationInput): IgnoreMigration {
   const dir = normalizeDir(input.dir);
   const deeper = input.configDirs
     .map((configDir) => normalizeDir(configDir))
     .filter((configDir) => configDir !== dir && (dir === "" || configDir.startsWith(`${dir}/`)));
-  return partitionIgnorePatterns(
-    extraIgnorePatterns(input.actual, input.reference).map((pattern) =>
-      scopeToDirectory(pattern, dir),
-    ),
-    deeper,
-  );
+  const extras = extraIgnorePatterns(input.actual, input.reference);
+  const scoped = extras.map((pattern) => scopeToDirectory(pattern, dir));
+  const { moved, unmoved } = partitionIgnorePatterns(scoped, deeper);
+  if (dir === "") return { moved, unmoved, local: [] };
+
+  // `moved` is an ordered subsequence of `scoped`, so one pass pairs every moved
+  // entry with the workspace-relative pattern it came from.
+  const local: string[] = [];
+  let next = 0;
+  for (const [index, pattern] of extras.entries()) {
+    if (moved[next] === scoped[index]) {
+      local.push(pattern);
+      next += 1;
+    }
+  }
+  return { moved, unmoved, local };
 }
 
 function withTrailingNewline(existing: string | undefined): string {

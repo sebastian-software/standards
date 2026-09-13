@@ -2,7 +2,7 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 
 import type { ScopeSpec } from "./manifest.js";
-import type { IgnoreMigration } from "./oxfmt-ignores.js";
+import type { IgnoreMigration, IgnorePartition } from "./oxfmt-ignores.js";
 import type { RepoMeta } from "./repo.js";
 import type { SyncContext } from "./sync.js";
 
@@ -35,18 +35,32 @@ function writeTarget(cwd: string, target: string, content: string): void {
   writeFileSync(path, content, "utf8");
 }
 
+function writeIgnoreFile(context: SyncContext, target: string, entries: IgnorePartition): Change[] {
+  const existing = readTarget(context, target);
+  const content = mergeIgnoreFile(existing, entries.moved, entries.unmoved);
+  if (content === undefined) return [];
+  writeTarget(context.cwd, target, content);
+  return [{ path: target, action: existing === undefined ? "created" : "appended" }];
+}
+
 /**
  * Carries the repository's own `ignorePatterns` out of the managed oxfmt config
  * before it is overwritten, so restoring the managed file does not silently
- * re-enable formatting for files the repository had excluded. See
+ * re-enable formatting for files the repository had excluded: into the root
+ * `.prettierignore`, and for a workspace also into its own one. See
  * `src/oxfmt-ignores.ts` for where the entries go and why.
  */
-function preserveOxfmtIgnores(context: SyncContext, migration: IgnoreMigration): Change[] {
-  const existing = readTarget(context, IGNORE_FILE);
-  const content = mergeIgnoreFile(existing, migration.moved, migration.unmoved);
-  if (content === undefined) return [];
-  writeTarget(context.cwd, IGNORE_FILE, content);
-  return [{ path: IGNORE_FILE, action: existing === undefined ? "created" : "appended" }];
+function preserveOxfmtIgnores(
+  context: SyncContext,
+  dir: string,
+  migration: IgnoreMigration,
+): Change[] {
+  return [
+    ...writeIgnoreFile(context, IGNORE_FILE, migration),
+    ...(dir === ""
+      ? []
+      : writeIgnoreFile(context, join(dir, IGNORE_FILE), { moved: migration.local, unmoved: [] })),
+  ];
 }
 
 /**
@@ -85,6 +99,7 @@ function applyManaged(context: SyncContext, scope: ScopeSpec, placement: Placeme
         mapping.target === OXFMT_CONFIG
           ? preserveOxfmtIgnores(
               context,
+              dir,
               planIgnoreMigration({ actual, reference, dir, configDirs }),
             )
           : [];
