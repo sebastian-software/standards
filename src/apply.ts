@@ -48,6 +48,24 @@ function preserveOxfmtIgnores(context: SyncContext, patterns: string[]): Change[
   return [{ path: IGNORE_FILE, action: existing === undefined ? "created" : "appended" }];
 }
 
+/**
+ * Every drifting oxfmt config of one run writes the same root `.prettierignore`,
+ * so the run reports that file once: at the position of its first record, as
+ * `created` when any unit created it and as `appended` otherwise.
+ */
+function mergeIgnoreFileChanges(changes: Change[]): Change[] {
+  const created = changes.some(
+    (change) => change.path === IGNORE_FILE && change.action === "created",
+  );
+  let reported = false;
+  return changes.flatMap((change) => {
+    if (change.path !== IGNORE_FILE) return [change];
+    if (reported) return [];
+    reported = true;
+    return [{ path: IGNORE_FILE, action: created ? "created" : change.action }];
+  });
+}
+
 function applyManaged(context: SyncContext, scope: ScopeSpec, dir: string): Change[] {
   return scope.managed
     .filter((mapping) => matchesPlatform(mapping.platform, context.meta.platform))
@@ -197,5 +215,5 @@ export function runApply(cwd: string, currentYear: number, options?: ApplyOption
     changes.push({ path: ".repometa.json", action: "bumped" });
   }
 
-  return changes;
+  return mergeIgnoreFileChanges(changes);
 }

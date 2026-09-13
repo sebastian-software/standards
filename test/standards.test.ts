@@ -704,6 +704,24 @@ describe("nested node workspaces", () => {
     expect(existsSync(join(cwd, "node", ".prettierignore"))).toBe(false);
   });
 
+  it("reports the root .prettierignore once when several workspaces move ignores", () => {
+    const cwd = createWorkspaceRepo(["node", "web"]);
+    runApply(cwd, YEAR);
+    for (const dir of ["node", "web"]) {
+      const managed = readFileSync(join(cwd, dir, ".oxfmtrc.json"), "utf8");
+      writeFileSync(join(cwd, dir, ".oxfmtrc.json"), withIgnorePatterns(managed, ["_generated/"]));
+    }
+
+    const changes = runApply(cwd, YEAR);
+
+    expect(changes.filter((change) => change.path === ".prettierignore")).toStrictEqual([
+      { path: ".prettierignore", action: "created" },
+    ]);
+    expect(readFileSync(join(cwd, ".prettierignore"), "utf8")).toBe(
+      "# Moved from .oxfmtrc.json by `standards apply`.\nnode/**/_generated/\n\nweb/**/_generated/\n",
+    );
+  });
+
   it("reports a workspace file with its full path", () => {
     const cwd = createWorkspaceRepo(["node"]);
     runApply(cwd, YEAR);
