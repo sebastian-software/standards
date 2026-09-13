@@ -187,9 +187,9 @@ pushes — that policy does not change — so the unvalidated case needs a trace
 machine can read. That trace is `.standards/blocked.json`.
 
 Write it whenever **any** gate check is still failing or incomplete after the
-best-effort fixes. Delete it when none is. It is never a run trigger: run 1 is
-started by `.standards/pending.json` plus `standards:needs-agent`, so a marker
-left behind fails the pull request and waits for a human or a new migration — it
+best-effort fixes. Delete it when none is. It is never a run trigger: run 1 has
+work only while `.standards/pending.json` is on the branch, so a marker left
+behind fails the pull request and waits for a human or a new migration — it
 cannot cause a retry loop.
 
 ```json
@@ -319,11 +319,14 @@ The external agent infrastructure (webhook receiver or poller) handles
 two routing paths, each a separate run with a fresh context — no memory
 transfer between runs:
 
-1. **Agent run 1 — mechanics.** Triggered by the presence of
-   `.standards/pending.json` on the PR head, or by the label
-   `standards:needs-agent` as a shortcut that saves the lookup. The
-   marker condition is not optional: run 1 removes the label when it
-   finishes, so a trigger that requires the label never fires again for a
+1. **Agent run 1 — mechanics.** Two questions are kept apart. **Whether
+   run 1 has work** is decided by `.standards/pending.json` on the PR head
+   and by nothing else: no marker, no work, whatever labels the pull
+   request carries. **What starts the agent** may be the marker or the
+   label `standards:needs-agent`; the label is a dispatch shortcut that
+   saves looking the marker up, never a requirement. A wiring must also
+   dispatch on the marker alone: run 1 removes the label when it finishes,
+   so a wiring that requires the label never starts run 1 again for a
    branch Renovate recreates later (see "Recreated drift branches").
    Reads `pending.json` — its
    `prompt` field carries the instructions and references the `changes`
