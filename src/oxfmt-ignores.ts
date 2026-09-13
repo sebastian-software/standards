@@ -10,15 +10,20 @@
  * read from there, so every entry — including one from a workspace's own oxfmt
  * config — moves into the root file, rewritten relative to the root.
  *
- * Moving changes what a pattern can reach, so only a pattern whose effect stays
- * provably the same moves. `.prettierignore` applies to the whole tree, while a
- * config's `ignorePatterns` never reached a deeper directory with its own config;
- * and a moved negation can no longer override a managed pattern, because oxfmt
- * applies the two files as separate layers. A pattern that could reach a
- * workspace whose config existed before this run, and a negation a managed
- * pattern could exclude, are therefore not moved: they are written below the
- * moved ones as comments, so the drift pull request shows them and a person or
- * the agent decides what to do with each.
+ * Moving must not change which files are checked, so entries move only when the
+ * result is provably the same. oxfmt applies `ignorePatterns` and
+ * `.prettierignore` as separate layers and excludes a file when either layer
+ * does, so a set of positive entries means the same in either place. A negation
+ * does not: gitignore matching is order-sensitive and a negation only overrides
+ * lines of its own file, so splitting a config that contains one, or placing the
+ * negation next to lines it never saw, changes the result. And `.prettierignore`
+ * applies to the whole tree, while a config's `ignorePatterns` never reached a
+ * deeper directory with its own config.
+ *
+ * So a config with any negation moves nothing, and a positive entry that could
+ * reach a workspace whose config existed before this run stays as well. Every
+ * entry that does not move is written below the moved ones as a comment, so the
+ * drift pull request shows it and a person or the agent decides what to do.
  */
 
 export const OXFMT_CONFIG = ".oxfmtrc.json";
@@ -59,15 +64,16 @@ function ignorePatternsOf(content: string | undefined): string[] | undefined {
 
 /**
  * The `ignorePatterns` entries of `actual` that the managed `reference` does not
- * carry, in their original order and without duplicates. Content that is not a
- * JSON object with a string array yields nothing: there is no intent to keep.
+ * carry, in their original sequence — duplicates included, because an entry
+ * repeated after a negation decides what that negation leaves in place. Content
+ * that is not a JSON object with a string array yields nothing: there is no
+ * intent to keep.
  */
 export function extraIgnorePatterns(actual: string | undefined, reference: string): string[] {
   const managed = new Set(ignorePatternsOf(reference));
-  const extras = (ignorePatternsOf(actual) ?? [])
+  return (ignorePatternsOf(actual) ?? [])
     .map((pattern) => pattern.trim())
     .filter((pattern) => pattern !== "" && !managed.has(pattern));
-  return [...new Set(extras)];
 }
 
 /**
@@ -112,42 +118,24 @@ function mayReach(pattern: string[], dir: string[]): boolean {
 }
 
 /**
- * Whether `pattern` could match `path` or one of its ancestors. A wildcard on
- * either side is assumed to match, so the answer errs towards `true`.
- */
-function mayMatch(pattern: string[], path: string[]): boolean {
-  const [head, ...rest] = pattern;
-  if (head === undefined) return true;
-  if (head === "**") {
-    return path.some((_, index) => mayMatch(rest, path.slice(index))) || mayMatch(rest, []);
-  }
-  const [first, ...remaining] = path;
-  if (first === undefined) return false;
-  if (hasGlob(head) || hasGlob(first)) return true;
-  return head === first && mayMatch(rest, remaining);
-}
-
-/**
- * Splits root-relative repository patterns into the ones whose effect survives
- * the move into the root `.prettierignore` and the ones it would change: a
- * pattern that could reach a deeper config directory, and a negation whose
- * target a managed pattern could exclude.
+ * Splits one config's root-relative patterns into the ones whose effect
+ * survives the move into the root `.prettierignore` and the ones it would
+ * change. With a negation among them none moves; otherwise a pattern stays only
+ * when it could reach a deeper config directory.
  */
 export function partitionIgnorePatterns(
   patterns: string[],
-  managed: string[],
   deeperConfigDirs: string[],
 ): IgnoreMigration {
-  const managedSegments = managed.map((pattern) => toSegments(pattern));
+  if (patterns.some((pattern) => pattern.startsWith("!"))) {
+    return { moved: [], unmoved: [...patterns] };
+  }
   const dirSegments = deeperConfigDirs.map((dir) => dir.split("/"));
   const moved: string[] = [];
   const unmoved: string[] = [];
   for (const pattern of patterns) {
-    const negated = pattern.startsWith("!");
-    const target = toSegments(negated ? pattern.slice(1) : pattern);
-    const reachesDeeperConfig = dirSegments.some((dir) => mayReach(target, dir));
-    const overridesManaged = negated && managedSegments.some((entry) => mayMatch(entry, target));
-    (reachesDeeperConfig || overridesManaged ? unmoved : moved).push(pattern);
+    const target = toSegments(pattern);
+    (dirSegments.some((dir) => mayReach(target, dir)) ? unmoved : moved).push(pattern);
   }
   return { moved, unmoved };
 }
@@ -162,13 +150,13 @@ function normalizeDir(dir: string): string {
 /** What to do with the repository's own entries of one config being overwritten. */
 export function planIgnoreMigration(input: IgnoreMigrationInput): IgnoreMigration {
   const dir = normalizeDir(input.dir);
-  const scoped = (pattern: string): string => scopeToDirectory(pattern, dir);
   const deeper = input.configDirs
     .map((configDir) => normalizeDir(configDir))
     .filter((configDir) => configDir !== dir && (dir === "" || configDir.startsWith(`${dir}/`)));
   return partitionIgnorePatterns(
-    extraIgnorePatterns(input.actual, input.reference).map((pattern) => scoped(pattern)),
-    (ignorePatternsOf(input.reference) ?? []).map((pattern) => scoped(pattern)),
+    extraIgnorePatterns(input.actual, input.reference).map((pattern) =>
+      scopeToDirectory(pattern, dir),
+    ),
     deeper,
   );
 }
@@ -191,13 +179,14 @@ function appendBlock(base: string, lines: string[]): string {
 }
 
 /**
- * The ignore file with every missing moved pattern appended, and every missing
- * unmoved one listed as a comment under its own header, or `undefined` when all
- * of them are already present. Existing lines are never reordered or removed.
+ * The ignore file with every moved pattern appended and every unmoved one listed
+ * as a comment under its own header, or `undefined` when there is nothing to
+ * add. Existing lines are never reordered or removed.
  *
- * Gitignore matching is order-sensitive, so from the first missing moved pattern
- * on the whole incoming sequence is appended, lines already in the file included:
- * a negation that is already present has to follow the exclusion it overrides.
+ * A moved pattern is appended even when the file already carries it: a negation
+ * the repository wrote below that line would otherwise override an exclusion the
+ * config applied, and only the appended copy keeps it in force. A comment that is
+ * already present is not repeated, because comments change nothing.
  */
 export function mergeIgnoreFile(
   existing: string | undefined,
@@ -205,16 +194,14 @@ export function mergeIgnoreFile(
   unmoved: string[] = [],
 ): string | undefined {
   const present = new Set((existing ?? "").split(/\r?\n/u).map((line) => line.trim()));
-  const firstMissing = patterns.findIndex((pattern) => !present.has(pattern));
-  const missing = firstMissing === -1 ? [] : patterns.slice(firstMissing);
   const missingUnmoved = unmoved
     .map((pattern) => `# ${pattern}`)
     .filter((line) => !present.has(line));
-  if (missing.length === 0 && missingUnmoved.length === 0) return undefined;
+  if (patterns.length === 0 && missingUnmoved.length === 0) return undefined;
 
   const withMoved = appendBlock(
     withTrailingNewline(existing),
-    withHeader(present, MIGRATION_COMMENT, missing),
+    withHeader(present, MIGRATION_COMMENT, patterns),
   );
   return appendBlock(withMoved, withHeader(present, UNMOVED_COMMENT, missingUnmoved));
 }

@@ -203,7 +203,7 @@ describe("apply and check", () => {
     expect(runApply(cwd, YEAR)).toStrictEqual([]);
   });
 
-  it("appends only missing ignores to an existing .prettierignore", () => {
+  it("appends every moved ignore to an existing .prettierignore, present ones included", () => {
     const cwd = createFixtureRepo();
     runApply(cwd, YEAR);
     const managed = readFileSync(join(cwd, ".oxfmtrc.json"), "utf8");
@@ -215,7 +215,28 @@ describe("apply and check", () => {
 
     expect(runApply(cwd, YEAR)).toContainEqual({ path: ".prettierignore", action: "appended" });
     expect(readFileSync(join(cwd, ".prettierignore"), "utf8")).toBe(
-      "# own entries\n.limen.yaml\n\n# Moved from .oxfmtrc.json by `standards apply`.\n.sops.yaml\n",
+      "# own entries\n.limen.yaml\n\n# Moved from .oxfmtrc.json by `standards apply`.\n" +
+        ".limen.yaml\n.sops.yaml\n.sops.yaml\n",
+    );
+  });
+
+  it("moves nothing from a config with a negation and lists every entry as not moved", () => {
+    const cwd = createFixtureRepo();
+    runApply(cwd, YEAR);
+    const managed = readFileSync(join(cwd, ".oxfmtrc.json"), "utf8");
+    writeFileSync(
+      join(cwd, ".oxfmtrc.json"),
+      withIgnorePatterns(managed, ["/build", "gen/*", "!gen/keep.ts"]),
+    );
+
+    expect(runApply(cwd, YEAR)).toStrictEqual([
+      { path: ".prettierignore", action: "created" },
+      { path: ".oxfmtrc.json", action: "updated" },
+    ]);
+    expect(readFileSync(join(cwd, ".oxfmtrc.json"), "utf8")).toBe(managed);
+    expect(readFileSync(join(cwd, ".prettierignore"), "utf8")).toBe(
+      "# Not moved from .oxfmtrc.json by `standards apply`: each would change which files are checked.\n" +
+        "# /build\n# gen/*\n# !gen/keep.ts\n",
     );
   });
 
