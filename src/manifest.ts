@@ -67,3 +67,17 @@ export function loadCliVersion(packageRoot: string): string {
   }
   return raw.version;
 }
+
+/**
+ * The npm package name of the CLI that is running, read from the same
+ * `package.json` as `loadCliVersion`. It names the dependency the `pin`
+ * finding looks for and exempts the CLI's own repository — a renamed fork
+ * exempts itself correctly.
+ */
+export function loadCliName(packageRoot: string): string {
+  const raw: unknown = JSON.parse(readFileSync(join(packageRoot, "package.json"), "utf8"));
+  if (!isRecord(raw) || typeof raw.name !== "string") {
+    throw new Error("Invalid package.json: expected { name: string }");
+  }
+  return raw.name;
+}

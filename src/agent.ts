@@ -88,6 +88,44 @@ against the manifest of whichever CLI actually runs:
 }
 
 /**
+ * The pin-shape rule, rendered in both `ChangesSource` modes.
+ *
+ * Unlike the version pre-flight above it does not depend on which CLI produced
+ * the prompt: that section's argument is about pinning to a stale *version*,
+ * which does not transfer to the pin's *shape*. Without this block the `sync`
+ * path would meet a blocking `pin` finding it was never told how to fix.
+ */
+const PIN_SHAPE_SECTION = `## Declare the standards CLI as an exact version literal
+
+\`standards check\` reports a blocking \`pin\` finding and exits 3 when a
+package.json declares \`@sebastian-software/standards\` with anything but a
+bare exact version literal such as \`0.11.1\` — a range (\`^0.2.0\`), a tag
+(\`latest\`), an \`npm:\` alias, a \`catalog:\`, \`workspace:\`, \`file:\` or
+\`link:\` reference, or a URL — and when a CI workflow runs the standards CLI
+while no package.json declares it. \`standards apply\` does not repair it:
+
+1. Replace or add the declaration. Where a package.json declares the CLI with
+   a non-exact specifier, set that specifier to an exact version in that same
+   package.json and dependency field, keeping the version the lockfile
+   resolves today unless another step of this migration names a different
+   one. A \`catalog:\` entry moves out of the catalog into an exact
+   \`devDependencies\` entry. Where no package.json declares the CLI, add an
+   exact \`devDependencies\` entry to the package.json the CI job installs from
+   (\`pnpm add --save-dev --save-exact @sebastian-software/standards@<version>\`
+   run in that directory).
+2. Refresh the lockfile in the same commit.
+3. If the pin cannot be made exact, push your best-effort commits and write
+   \`.standards/blocked.json\` with \`blocking: true\`, per the Validation
+   section below. Its \`reason\` names the specifier class — for example a
+   range, a \`catalog:\` reference, a URL — and never copies a URL specifier or
+   the credentials it may carry.
+
+Rust-only repositories pin the CLI in a workflow \`dlx\` argument, whose shape
+is not checked.
+
+`;
+
+/**
  * The gate contract: run it, treat it as hints, always finalize, and leave a
  * machine-readable trace of whatever stayed red. It is invariant across both
  * `ChangesSource` modes, so it lives outside the template.
@@ -118,11 +156,17 @@ machine can read:
 - If any gate check is still failing or incomplete after your best-effort
   fixes, write \`.standards/blocked.json\` — creating \`.standards/\` if it does
   not exist — and commit it with the rest of your work. Its schema is documented
-  in the SKILL text above. Set \`blocking: true\` only when the
-  \`@sebastian-software/standards\` pin and the version stamp could not be
-  brought into agreement; every other unfinished check sets \`blocking: false\`
-  and is listed in \`failedChecks\`, because the repository's own lanes already
-  report those.
+  in the SKILL text above. Set \`blocking: true\` only for the alignment
+  class, which has two members: the \`@sebastian-software/standards\` pin and
+  the version stamp could not be brought into agreement, or the pin could not
+  be made a bare exact version literal. Name the member in \`reason\`. For the
+  pin-shape member, \`reason\` names the specifier class (for example a range,
+  a \`catalog:\` reference, a URL) and never copies a URL specifier or its
+  credentials, and \`expectedCliVersion\` and \`observedCliVersion\` may agree.
+  Both members make \`standards check\` exit 3, but only the stamp mismatch
+  makes \`standards apply\` and \`standards sync\` refuse to write. Every other
+  unfinished check sets \`blocking: false\` and is listed in \`failedChecks\`,
+  because the repository's own lanes already report those.
 - If nothing is failing or incomplete, delete \`.standards/blocked.json\` when
   it exists from an earlier run, and commit that deletion.
 - Writing the marker never replaces pushing. Push in both cases; the marker
@@ -153,7 +197,7 @@ entries below that apply to this repository, following the instructions.
 
 ${skill}
 
-${preflightSection}## Changelog entries to execute
+${PIN_SHAPE_SECTION}${preflightSection}## Changelog entries to execute
 
 ${changesSection}
 

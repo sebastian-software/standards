@@ -42,7 +42,8 @@ for the full step-by-step procedure.
 
    Raise the pin and run `apply` in the same change. `check` compares
    `.repometa.json#standards` against the `manifest.json#currentVersion` of the
-   CLI that runs it, and the two directions are different defects:
+   CLI that runs it, and the two directions are different defects. Beside them
+   it checks the shape of the pin itself:
 
    - **Repository behind the CLI** — ordinary drift. `standards apply` and the
      changelog entries repair it; `check` exits `1`.
@@ -64,6 +65,29 @@ for the full step-by-step procedure.
      repository must not read as having completed it. `sync` stops before the
      agent: no prompt is built and no `claude` or `codex` process is started.
      `apply --from-version` is untouched by this and still exits `0`.
+
+   - **The pin is not an exact version literal** — a `package.json` declares
+     `@sebastian-software/standards` as a range (`^0.2.0`), a tag (`latest`), an
+     `npm:` alias, a `catalog:`, `workspace:`, `file:` or `link:` reference, or a
+     URL; or a repository whose CI workflow runs the standards CLI declares it in
+     no examined `package.json` at all. `check` reports a blocking `pin` finding
+     and exits `3`, because such a pin cannot be raised to the release a stamp
+     needs. `package.json` is neither managed nor seeded, so `apply` does not
+     repair it — but, unlike a stale CLI, a wrong pin shape does not make `apply`
+     or `sync` refuse to write: a current CLI's references are still right. Set
+     the specifier to an exact version in the `package.json` and dependency
+     field that declares it; a `catalog:` entry moves out of the catalog into an
+     exact `devDependencies` entry. Where no `package.json` declares the CLI, add
+     an exact devDependency to the one the CI job installs from
+     (`pnpm add --save-dev --save-exact @sebastian-software/standards@<version>`
+     in that directory). The root and every directory in `.repometa.json#workspaces` are
+     examined; the repository of the CLI itself is exempt. Rust-only `dlx` pins
+     are not checked.
+
+   The CLI-behind direction and a wrong pin shape are the two members of the
+   **alignment class**. Exit code and write refusal are separate properties of
+   it: both members exit `3`, only the stamp mismatch makes `apply` and `sync`
+   refuse to write.
 
    Compatibility is never inferred from npm semver ordering. Prove it on two
    values: the installed `manifest.json#currentVersion` must equal
@@ -207,9 +231,15 @@ cannot cause a retry loop.
 }
 ```
 
-- `blocking` is `true` **only** for the CLI/stamp alignment class — the pinned
-  CLI does not ship the manifest version the repository is stamped at, so no
-  verdict of that run can be trusted. The seeded CI guard hard-fails on it.
+- `blocking` is `true` **only** for the alignment class, which has two members:
+  the pinned CLI does not ship the manifest version the repository is stamped
+  at, so no verdict of that run can be trusted; or the pin could not be made a
+  bare exact version literal. Both make `standards check` exit `3`; only the
+  stamp mismatch also makes `apply` and `sync` refuse to write. `reason` states
+  which member blocked — for the pin-shape member it names the specifier class
+  (a range, a `catalog:` reference, a URL) and never copies a URL specifier or
+  its credentials, and `expectedCliVersion` and `observedCliVersion` may agree.
+  The seeded CI guard hard-fails on it.
 - Every other unfinished check sets `blocking: false` and lists the check in
   `failedChecks`. Those failures already fail the repository's own lanes; the
   marker records them as context for the reviewer rather than as a second

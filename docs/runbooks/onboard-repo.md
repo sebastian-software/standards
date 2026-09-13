@@ -107,11 +107,20 @@ decides what executes on every pull request instead of whatever npm
 published minutes earlier. Renovate's `:standards` preset raises the
 pin as a reviewable pull request.
 
+The exact pin is gated, not only a convention: `standards check`
+reports a declaration that is not a bare exact version literal (a
+range, a tag, `catalog:`, `workspace:*`, an alias) as a blocking
+`pin` finding and exits `3`, and so does a repository whose CI runs
+the CLI but whose `package.json` does not declare it. The seeded CI
+guard checks the same rule. `standards apply` does not repair it —
+fix the `package.json` and refresh the lockfile.
+
 Rust-only or documentation-only repos skip this step: they have no
 lockfile to hold the version, so their CI pins it in the command
 itself (`dlx @sebastian-software/standards@<x.y.z>`) and a Renovate
 regex manager keeps it current — see
-[`reference/rust/README.md`](../../reference/rust/README.md).
+[`reference/rust/README.md`](../../reference/rust/README.md). That
+`dlx` pin is not machine-checked.
 
 **Node workspace in a subdirectory?** A repo whose `package.json`
 lives in `node/` or `crates/<name>-node/` rather than at the root

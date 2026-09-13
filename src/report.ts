@@ -7,6 +7,11 @@ import { stampFinding } from "./check.js";
  * `standards check` without `--json`, so `3` (blocking) has to be
  * distinguishable from `1` (ordinary drift) without a parser. `2` stays
  * reserved for usage errors.
+ *
+ * `3` covers both members of the alignment class — a CLI older than the
+ * repository's stamp, and a `pin` that is not a bare exact version literal.
+ * Exit code and write refusal are separate properties: only the stamp member
+ * also makes `apply` and `sync` refuse to write.
  */
 export const BLOCKING_EXIT_CODE = 3;
 
@@ -59,9 +64,17 @@ export function reportFindingsText(findings: Finding[], blocking: number): void 
  * check` refuses with exit `3`. They now report the finding `check` builds for
  * this direction and carry its exit code, so one defect reads the same from
  * every entry point. Returns whether the caller must stop.
+ *
+ * `displaySpecifier` is forwarded to `stampFinding` unchanged and must be the
+ * already-redacted form from `inspectPin`: this line is printed to stdout. A
+ * `pin` finding alone never stops `apply` or `sync`.
  */
-export function reportStaleCli(stamped: number, current: number): boolean {
-  const finding = stampFinding(stamped, current);
+export function reportStaleCli(
+  stamped: number,
+  current: number,
+  displaySpecifier: string | undefined,
+): boolean {
+  const finding = stampFinding(stamped, current, displaySpecifier);
   if (finding?.blocking !== true) {
     return false;
   }

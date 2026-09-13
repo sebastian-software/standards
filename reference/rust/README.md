@@ -111,7 +111,10 @@ the `standards check` drift lane with its `.standards/pending.json` guard.
 
 That drift lane runs a **pinned** CLI: `dlx @sebastian-software/standards@<x.y.z>`.
 A Rust-only repository has no lockfile to hold the version, so the pin lives in
-the workflow and Renovate keeps it current. Add this custom manager to the
+the workflow and Renovate keeps it current. Unlike a Node devDependency, whose
+shape `standards check` gates with a blocking `pin` finding, this `dlx` pin is
+**not** machine-checked: nothing verifies that the argument stays an exact
+version, so keep it one by hand and in review. Add this custom manager to the
 repository's `renovate.json` — or take it from the org preset once it moves
 there:
 
