@@ -33,8 +33,8 @@ Two variants are covered:
   [`0004-ci-workflow-forgejo.md`](../../changes/0004-ci-workflow-forgejo.md).
 - Branch-protection snippet:
   [SKILL.md#branch-protection-setup](../../SKILL.md#branch-protection-setup).
-- Open agent gap:
-  [SKILL.md#pull-mode-agent-wiring-open](../../SKILL.md#pull-mode-agent-wiring-open).
+- Agent wiring and recreated drift branches:
+  [SKILL.md#pull-mode-agent-wiring](../../SKILL.md#pull-mode-agent-wiring).
 
 ## Variant A — New repo
 
@@ -275,7 +275,7 @@ proxmox repo) that wraps steps 2 + 6 in one shot is a follow-up
 improvement, tracked in this runbook's surrounding plan
 [`docs/plan/0011-onboarding-runbook.md`](../plan/0011-onboarding-runbook.md).
 
-### 7. Await the first drift PR (and the open agent gap)
+### 7. Await the first drift PR
 
 Once the topic is set, the standards stamp is initialised, and the
 Renovate preset is active, the next worker run opens a drift PR
@@ -293,11 +293,17 @@ titled `chore(standards): v<N>`. It contains:
 - Label `standards:needs-agent` (GitHub) and/or the presence of
   `pending.json` (Forgejo).
 
-**Open agent gap.** The external pull-mode agent that picks up
-`pending.json` is **not** wired in this org yet — see
-[SKILL.md#pull-mode-agent-wiring-open](../../SKILL.md#pull-mode-agent-wiring-open)
-and [#13](https://github.com/sebastian-software/standards/issues/13).
-Until that wiring lands:
+**Agent run 1.** The external pull-mode agent picks the PR up on its
+own — see
+[SKILL.md#pull-mode-agent-wiring](../../SKILL.md#pull-mode-agent-wiring).
+A run takes several minutes; it ends with a summary comment, a pushed
+branch without `pending.json`, and the `standards:needs-agent` label
+removed. Do not tick Renovate's rebase/retry checkbox afterwards unless
+you mean to restart the migration: Renovate regenerates the branch, the
+agent's commits are lost, and run 1 repeats — see
+[SKILL.md#recreated-drift-branches](../../SKILL.md#recreated-drift-branches).
+
+If no agent reacts, work the PR by hand:
 
 - Check out the drift PR branch locally.
 - Read `.standards/pending.json` (it carries the same prompt that
