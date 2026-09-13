@@ -320,8 +320,8 @@ Once `pending.json` is gone, the CI guard step from the seeded
 The second agent run (see
 [SKILL.md#two-runs-one-external-wiring](../../SKILL.md#two-runs-one-external-wiring))
 posts a PR comment summarising the changes, checking SKILL.md
-rules, and recommending `merge` or `hold`. Today this is the
-_intended_ state — until the external wiring lands, the maintainer
+rules, and recommending `merge` or `hold`. Run 2 has not been
+observed on a drift PR yet — until it is, the maintainer
 reads the diff and SKILL.md rules manually without an LLM
 pre-comment, and merges via Variant A from
 [`changes/0001`](../../changes/0001-baseline.md) and the merge
