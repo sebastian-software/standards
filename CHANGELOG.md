@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.13.0](https://github.com/sebastian-software/standards/compare/standards-v0.12.0...standards-v0.13.0) (2026-09-14)
+
+
+### Features
+
+* **ci:** separate CI and standards consistency checks ([#91](https://github.com/sebastian-software/standards/issues/91)) ([eb6c755](https://github.com/sebastian-software/standards/commit/eb6c75549ba4022638ea5e54edf1ea2db721443e))
+
 ## [0.12.0](https://github.com/sebastian-software/standards/compare/standards-v0.11.1...standards-v0.12.0) (2026-09-13)
 
 
