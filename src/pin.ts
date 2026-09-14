@@ -29,16 +29,11 @@ import { workspaceDirs } from "./sync.js";
  * - A build part after `+` is one or more dot-separated, non-empty identifiers,
  *   where leading zeros are allowed.
  *
- * The seeded node CI guards embed the same text without the trailing `$` and
- * compare the match to the whole specifier, so the alphanumeric prerelease
- * branch comes first: in the unanchored guard, a numeric branch tried first
- * would stop `1.2.3-0a` at `1.2.3-0`.
- *
  * The grammar alone is not enough: `isExactVersionLiteral` also holds a pin to
- * npm's own limits, which the guards repeat.
+ * npm's own limits. `standards ci` uses this same check.
  */
 export const EXACT_VERSION_LITERAL =
-  // eslint-disable-next-line security/detect-unsafe-regex, regexp/prefer-d, regexp/no-useless-character-class -- anchored; the nested `(?:[.]identifier)*` repetition is unambiguous because only `.` separates repeated identifiers and `.` belongs to no identifier class, and the three prerelease branches are disjoint (letter or hyphen, `0`, nonzero-led digits), so matching stays linear on any input. `[0-9]`, `[.]` and `[+]` keep the text byte-identical to the CI guards, whose double-quoted `node -p` body admits no backslash.
+  // eslint-disable-next-line security/detect-unsafe-regex, regexp/prefer-d, regexp/no-useless-character-class -- anchored; the nested `(?:[.]identifier)*` repetition is unambiguous because only `.` separates repeated identifiers and `.` belongs to no identifier class, and the three prerelease branches are disjoint (letter or hyphen, `0`, nonzero-led digits), so matching stays linear on any input.
   /^(?:0|[1-9][0-9]*)[.](?:0|[1-9][0-9]*)[.](?:0|[1-9][0-9]*)(?:-(?:[0-9]*[A-Za-z-][0-9A-Za-z-]*|0|[1-9][0-9]*)(?:[.](?:[0-9]*[A-Za-z-][0-9A-Za-z-]*|0|[1-9][0-9]*))*)?(?:[+][0-9A-Za-z-]+(?:[.][0-9A-Za-z-]+)*)?$/u;
 
 /**
@@ -93,7 +88,7 @@ export function redactSpecifier(specifier: string): string {
 }
 
 const WORKFLOW_DIRS = [".github/workflows", ".forgejo/workflows"];
-const LANE_TOKENS = ["standards check", "@sebastian-software/standards"];
+const LANE_TOKENS = ["standards ci", "standards check", "@sebastian-software/standards"];
 
 function isWorkflowFile(name: string): boolean {
   return name.endsWith(".yml") || name.endsWith(".yaml");
@@ -120,7 +115,7 @@ function workflowFiles(cwd: string, dir: string): string[] {
 /**
  * Whether the repository demonstrably runs the standards CLI in CI: a
  * `*.yml`/`*.yaml` file directly in `.github/workflows/` or
- * `.forgejo/workflows/` that mentions `standards check` or
+ * `.forgejo/workflows/` that mentions `standards check`, `standards ci` or
  * `@sebastian-software/standards`. It is the precondition of the *absent*
  * member only — a node scope detected on a mere `package.json` is not a
  * standards consumer (a Rust project with a Node build harness is not).

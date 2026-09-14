@@ -107,40 +107,17 @@ never delete an exception another repository reviewed.
 `ci.yml` covers fmt, Clippy with `--all-targets --all-features -D warnings`,
 tests on Linux, macOS and Windows, the MSRV lane, rustdoc with
 `RUSTDOCFLAGS=-D warnings`, cargo-deny, a conventional-commit title check, and
-the `standards check` drift lane with its `.standards/pending.json` guard.
+the `standards ci` lane, including pending and blocked markers.
 
 That drift lane runs a **pinned** CLI: `dlx @sebastian-software/standards@<x.y.z>`.
 A Rust-only repository has no lockfile to hold the version, so the pin lives in
 the workflow and Renovate keeps it current. Unlike a Node devDependency, whose
 shape `standards check` gates with a blocking `pin` finding, this `dlx` pin is
 **not** machine-checked: nothing verifies that the argument stays an exact
-version, so keep it one by hand and in review. Add this custom manager to the
-repository's `renovate.json` — or take it from the org preset once it moves
-there:
-
-```json
-{
-  "customManagers": [
-    {
-      "customType": "regex",
-      "description": "Keep the pinned standards CLI in the workflows current",
-      "managerFilePatterns": ["/^\\.github/workflows/.+\\.ya?ml$/"],
-      "matchStrings": ["@sebastian-software/standards@(?<currentValue>[^\\s]+) "],
-      "depNameTemplate": "@sebastian-software/standards",
-      "datasourceTemplate": "npm"
-    }
-  ]
-}
-```
-
-`managerFilePatterns` replaced `fileMatch` in Renovate 41; on an older worker
-the key is `fileMatch` with the same value. Raise the pin in the same pull
-request that runs `apply`, so the stamp and the CLI that checks it never
-disagree — a CLI older than the stamp reports drift that does not exist.
-
-The version in this reference `ci.yml` is not hand-edited: release-please
-bumps it in the standards repository alongside `package.json`, so every
-published copy names the CLI that matches the stamp it ships.
+version, so keep it one by hand and in review. The shared `renovate-config:standards` preset discovers this workflow pin.
+After adopting that preset update, remove any equivalent per-repository regex
+manager to avoid extracting the same dependency twice. When a CLI update ships
+new standards, apply the corresponding migration and stamp in the same PR.
 
 A committed root `Cargo.lock` is a prerequisite of the standard, libraries
 included: every cargo command in `ci.yml` runs with `--locked`, so dependency

@@ -59,7 +59,15 @@ Four properties make a re-run safe:
 
 ## `publish-npm`
 
-Publishes one or more packages with provenance, in the given order.
+Publishes one or more local package directories with provenance, in the given
+order. Directory inputs are resolved to absolute paths before invoking npm, so
+`npm/linux-x64-gnu` cannot be mistaken for a Git repository.
+
+A retry skips exact name/version pairs already published. Only an explicit
+registry `E404` is treated as missing; authentication, network and malformed
+responses stop the job. After a partial failure, retry the same release tag.
+Skipping a published version does not change its dist-tag; update tags
+explicitly if the intended channel has changed.
 
 | Input               | Default  | Meaning                                                       |
 | ------------------- | -------- | ------------------------------------------------------------- |

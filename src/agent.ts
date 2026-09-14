@@ -9,7 +9,7 @@ export const AGENTS = ["claude", "codex"] as const;
 export type AgentName = (typeof AGENTS)[number];
 
 // `inline` embeds each changelog body in the prompt — used for the
-// self-contained local `standards sync` prompt, where no marker file exists.
+// self-contained `standards sync --dry-run` preview.
 // `pending-file` ships next to the `changes` array of `.standards/pending.json`
 // (the Renovate flow), so it references that array instead of duplicating the
 // bodies into the prompt.
@@ -23,7 +23,7 @@ export type PromptInput = {
   toVersion: number;
   /**
    * The npm version of the CLI that produced this prompt. Only meaningful in
-   * `pending-file` mode, where the producing CLI is Renovate's freshly resolved
+   * `pending-file` mode, where the producing CLI is the migration's selected
    * one and the consumer's pin has to be raised to match it.
    */
   cliVersion?: string;
@@ -50,7 +50,7 @@ ${index}`;
  * In `pending-file` mode the payload was written by Renovate's freshly resolved
  * CLI, so `cliVersion` names a release the repository does not have yet and
  * raising the pin to it is the first thing to do. In `inline` mode the prompt
- * comes from `standards sync`, which runs the repository's own — possibly
+ * comes from a preview, which runs the repository's own — possibly
  * stale — CLI; instructing that run to pin to `cliVersion` would tell it to pin
  * to the very version whose staleness is the defect. So the step is omitted
  * there and the drift surfaces through `standards check` instead.

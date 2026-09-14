@@ -38,13 +38,7 @@ import {
 } from "../src/init.js";
 // Aliased: several tests destructure `getPackageRoot` from a dynamic import.
 import { loadManifest, getPackageRoot as standardsRoot } from "../src/manifest.js";
-import {
-  EXACT_VERSION_LITERAL,
-  EXACT_VERSION_MAX_LENGTH,
-  hasStandardsLane,
-  inspectPin,
-  isExactVersionLiteral,
-} from "../src/pin.js";
+import { hasStandardsLane, inspectPin, isExactVersionLiteral } from "../src/pin.js";
 import { isGeneratedReadme, readRepoMeta } from "../src/repo.js";
 import {
   assertPendingPayload,
@@ -399,7 +393,7 @@ describe("apply and check", () => {
     ).toStrictEqual(
       expect.arrayContaining(["README.md", "markdown-themer.config.*", "package.json"]),
     );
-    const syncResult = runCli(["sync", "--cwd", cwd, "--dry-run"]);
+    const syncResult = runCli(["sync", "--cwd", cwd]);
     expect(syncResult.status).toBe(1);
     expect(syncResult.stderr).toContain("Invalid markdown-themer README migration");
     expect(readFileSync(join(cwd, "README.md"), "utf8")).toBe(customReadme);
@@ -947,7 +941,7 @@ describe("nested node workspaces", () => {
 
     expect(existsSync(join(cwd, "node", "rustfmt.toml"))).toBe(false);
     expect(buildPayload(cwd, 8)?.changes.map((entry) => entry.version)).toStrictEqual([
-      9, 10, 11, 12, 13, 14, 15,
+      9, 10, 11, 12, 13, 14, 15, 16,
     ]);
   });
 
@@ -1257,17 +1251,17 @@ describe("selectChanges and buildPrompt", () => {
 
     // 0013 is node+rust, so a common-only repository does not receive it.
     expect(selectChanges(root, 0, ["common"]).map((entry) => entry.version)).toStrictEqual([
-      1, 2, 3, 7, 8, 9, 10, 11, 12,
+      1, 2, 3, 7, 8, 9, 10, 11, 12, 16,
     ]);
     expect(selectChanges(root, 1, ["common", "node"]).map((entry) => entry.version)).toStrictEqual([
-      2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15,
+      2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16,
     ]);
     expect(selectChanges(root, 8, ["common", "node"]).map((entry) => entry.version)).toStrictEqual([
-      9, 10, 11, 12, 13, 14, 15,
+      9, 10, 11, 12, 13, 14, 15, 16,
     ]);
     // 0009 is the first entry a rust-only repository ever receives.
     expect(selectChanges(root, 0, ["rust"]).map((entry) => entry.version)).toStrictEqual([
-      9, 11, 13, 15,
+      9, 11, 13, 15, 16,
     ]);
   });
 
@@ -1878,7 +1872,7 @@ function initGitRepo(cwd: string, commitYear: number): void {
   runGit(cwd, ["init", "--quiet", "--initial-branch=main"], env);
   writeFileSync(join(cwd, "README.md"), "# fixture\n");
   runGit(cwd, ["add", "README.md"], env);
-  runGit(cwd, ["commit", "--quiet", "-m", "initial"], env);
+  runGit(cwd, ["-c", "commit.gpgsign=false", "commit", "--quiet", "-m", "initial"], env);
 }
 
 describe("parseVisibilityFlag", () => {
@@ -2797,7 +2791,7 @@ describe("standards CLI pin", () => {
 
   it("detects a standards lane from a workflow that carries only the alignment guard", () => {
     const cwd = createFixtureRepo();
-    const guard = alignmentGuardScriptOf("reference/node/github-workflows-ci.yml");
+    const guard = "require.resolve('@sebastian-software/standards/manifest.json')";
     writeWorkflow(
       cwd,
       ".github/workflows/guard.yml",
@@ -3366,321 +3360,6 @@ describe("assertBlockedState", () => {
     expect(() => {
       assertBlockedState(null);
     }).toThrow(/expected an object/);
-  });
-});
-
-/** A marker that satisfies `BlockedState`, as documented in `SKILL.md`. */
-const VALID_MARKER = {
-  schemaVersion: 1,
-  blocking: true,
-  reason: "The pinned CLI ships manifest version 12, but .repometa.json is stamped 13.",
-  detectedAt: "2026-09-07T09:41:12.000Z",
-  expectedStandardsVersion: 13,
-  observedStandardsVersion: 13,
-  expectedCliVersion: "0.10.0",
-  observedCliVersion: "0.9.0",
-  failedChecks: ["standards check"],
-  retry: "Raise the pin, refresh the lockfile, re-run the gate, then delete this file.",
-};
-
-/**
- * The body of the workflow's `node -e "…"` marker guard. Reading it out of the
- * workflow rather than restating it is what makes the tests below exercise the
- * script CI actually runs. Every string inside that script is single-quoted, so
- * the first double quote after the flag terminates it.
- */
-function markerGuardScriptOf(file: string): string {
-  const workflow = readFileSync(join(standardsRoot(), file), "utf8");
-  const step = workflow.slice(workflow.indexOf('- name: "Guard: no blocking agent findings'));
-  const flag = 'node -e "';
-  const start = step.indexOf(flag) + flag.length;
-  return step.slice(start, step.indexOf('"', start));
-}
-
-function runMarkerGuard(
-  file: string,
-  marker?: string,
-): { status: null | number; stderr: string; stdout: string } {
-  const cwd = mkdtempSync(join(tmpdir(), "standards-guard-"));
-  if (marker !== undefined) {
-    mkdirSync(join(cwd, ".standards"), { recursive: true });
-    writeFileSync(join(cwd, ".standards", "blocked.json"), marker);
-  }
-  const result = spawnSync(process.execPath, ["-e", markerGuardScriptOf(file)], {
-    cwd,
-    encoding: "utf8",
-  });
-  return { status: result.status, stdout: result.stdout, stderr: result.stderr };
-}
-
-/**
- * The body of the workflow's `node -p "…"` alignment guard, read out of the
- * workflow like `markerGuardScriptOf`. Its strings are single-quoted too, so
- * the first double quote after the flag terminates it.
- */
-function alignmentGuardScriptOf(file: string): string {
-  const workflow = readFileSync(join(standardsRoot(), file), "utf8");
-  const step = workflow.slice(
-    workflow.indexOf('- name: "Guard: the pinned standards CLI matches the repository stamp"'),
-  );
-  const flag = 'node -p "';
-  const start = step.indexOf(flag) + flag.length;
-  return step.slice(start, step.indexOf('"', start));
-}
-
-/**
- * Runs the alignment guard in a repository whose installed CLI matches the
- * stamp, so only the pin decides the outcome. `units` maps a directory (`""`
- * for the root) to its `package.json`; every other key is a declared workspace.
- */
-function runAlignmentGuard(
-  file: string,
-  units: Record<string, Record<string, unknown>>,
-): { status: null | number; stderr: string; stdout: string } {
-  const cwd = mkdtempSync(join(tmpdir(), "standards-alignment-"));
-  const version = currentStandardsVersion();
-  const workspaces = Object.keys(units).filter((dir) => dir !== "");
-  writeFileSync(
-    join(cwd, ".repometa.json"),
-    JSON.stringify({ standards: version, visibility: "oss", since: 2020, workspaces }),
-  );
-  const installed = join(cwd, "node_modules", "@sebastian-software", "standards");
-  mkdirSync(installed, { recursive: true });
-  writeFileSync(
-    join(installed, "package.json"),
-    JSON.stringify({ name: CLI_NAME, version: EXACT_PIN }),
-  );
-  writeFileSync(join(installed, "manifest.json"), JSON.stringify({ currentVersion: version }));
-  for (const [dir, manifest] of Object.entries(units)) {
-    writePackageJson(cwd, dir, manifest);
-  }
-  const result = spawnSync(process.execPath, ["-p", alignmentGuardScriptOf(file)], {
-    cwd,
-    encoding: "utf8",
-  });
-  return { status: result.status, stdout: result.stdout, stderr: result.stderr };
-}
-
-describe("seeded CI guards for alignment and the blocked marker", () => {
-  const nodeWorkflows = [
-    "reference/node/github-workflows-ci.yml",
-    "reference/node/forgejo-workflows-ci.yml",
-  ];
-
-  it.each(nodeWorkflows)("%s resolves the manifest and compares it to the stamp", (file) => {
-    const workflow = readFileSync(join(standardsRoot(), file), "utf8");
-
-    expect(workflow).toContain("require.resolve('@sebastian-software/standards/manifest.json'");
-    // Nested workspaces per change 0012 are searched as well.
-    expect(workflow).toContain("meta.workspaces");
-    expect(workflow).toContain("manifest.currentVersion !== meta.standards");
-    // `jq` is not guaranteed in the Forgejo node image, so no step may call it.
-    const executable = workflow
-      .split("\n")
-      .filter((line) => !line.trimStart().startsWith("#"))
-      .join("\n");
-    expect(executable).not.toContain("jq");
-    // The guard sits immediately before the drift lane, so a lint or test
-    // failure in the same run stays visible to a reviewer.
-    expect(workflow.indexOf("matches the repository stamp")).toBeLessThan(
-      workflow.indexOf("pnpm exec standards check"),
-    );
-  });
-
-  const guardedWorkflows = [...nodeWorkflows, "reference/rust/ci.yml"];
-
-  it.each(guardedWorkflows)("%s places the marker guard where it can run", (file) => {
-    const workflow = readFileSync(join(standardsRoot(), file), "utf8");
-
-    expect(workflow).toContain(".standards/blocked.json");
-    // The marker guard follows the pending guard it complements.
-    expect(workflow.indexOf("test ! -f .standards/pending.json")).toBeLessThan(
-      workflow.indexOf("no blocking agent findings"),
-    );
-    // It parses the marker with `node`, so the toolchain has to be set up
-    // first — in the Rust workflow the guard sits below the node setup for
-    // exactly this reason.
-    expect(workflow.indexOf("actions/setup-node")).toBeLessThan(
-      workflow.indexOf("no blocking agent findings"),
-    );
-    // A line-oriented match is what let a multi-line marker through.
-    expect(workflow).not.toContain("[[:space:]]");
-  });
-
-  it.each(guardedWorkflows)("%s passes a repository without a marker", (file) => {
-    expect(runMarkerGuard(file).status).toBe(0);
-  });
-
-  it.each(guardedWorkflows)("%s passes a valid non-blocking marker", (file) => {
-    const result = runMarkerGuard(file, JSON.stringify({ ...VALID_MARKER, blocking: false }));
-
-    expect(result.status).toBe(0);
-    expect(result.stdout).toContain("non-blocking");
-  });
-
-  it.each(guardedWorkflows)("%s fails on a blocking marker", (file) => {
-    const result = runMarkerGuard(file, JSON.stringify(VALID_MARKER));
-
-    expect(result.status).toBe(1);
-    expect(result.stderr).toContain("could not validate its result");
-  });
-
-  it.each(guardedWorkflows)("%s fails on a blocking flag split across lines", (file) => {
-    // The exact shape the line-oriented `grep` missed: JSON permits a newline
-    // between the key and its value, and the marker still records a blocking
-    // result.
-    const marker = JSON.stringify(VALID_MARKER, undefined, 2).replace(
-      '"blocking": true',
-      '"blocking":\n    true',
-    );
-    expect(marker).not.toContain('"blocking": true');
-
-    const result = runMarkerGuard(file, marker);
-
-    expect(result.status).toBe(1);
-    expect(result.stderr).toContain("could not validate its result");
-  });
-
-  it.each(guardedWorkflows)("%s fails on a marker that is not valid JSON", (file) => {
-    const result = runMarkerGuard(file, '{ "blocking": tru\n');
-
-    expect(result.status).toBe(1);
-    expect(result.stderr).toContain("not valid JSON");
-  });
-
-  it.each(guardedWorkflows)("%s fails on a marker that violates the schema", (file) => {
-    const { retry, ...withoutRetry } = VALID_MARKER;
-    void retry;
-
-    const result = runMarkerGuard(file, JSON.stringify({ ...withoutRetry, blocking: false }));
-
-    expect(result.status).toBe(1);
-    expect(result.stderr).toContain("does not match the documented schema");
-    expect(result.stderr).toContain("retry");
-  });
-
-  it.each(guardedWorkflows)("%s fails on a marker that is not an object", (file) => {
-    const result = runMarkerGuard(file, "[]\n");
-
-    expect(result.status).toBe(1);
-    expect(result.stderr).toContain("not a JSON object");
-  });
-
-  it("validates every field the authoritative schema declares", () => {
-    const guard = markerGuardScriptOf("reference/node/github-workflows-ci.yml");
-
-    for (const field of Object.keys(VALID_MARKER)) {
-      expect(guard).toContain(field);
-    }
-  });
-
-  it.each(nodeWorkflows)("%s reads the pin without jq", (file) => {
-    const guard = alignmentGuardScriptOf(file);
-
-    expect(guard).toContain("manifest.currentVersion !== meta.standards");
-    expect(guard).not.toContain("jq");
-  });
-
-  it.each(nodeWorkflows)("%s embeds a guard body sh cannot expand inside double quotes", (file) => {
-    const guard = alignmentGuardScriptOf(file);
-
-    expect(guard).toContain("manifest.currentVersion !== meta.standards");
-    expect(guard).not.toContain("$");
-    expect(guard).not.toContain("`");
-    expect(guard).not.toContain("\\");
-  });
-
-  it.each(nodeWorkflows)("%s passes an exact pin declared at the root", (file) => {
-    const result = runAlignmentGuard(file, { "": declaring(EXACT_PIN) });
-
-    expect(result.stderr).toBe("");
-    expect(result.status).toBe(0);
-  });
-
-  it.each(nodeWorkflows)("%s fails on a range pin", (file) => {
-    const result = runAlignmentGuard(file, { "": declaring("^0.2.0") });
-
-    expect(result.status).not.toBe(0);
-    expect(result.stderr).toContain(CLI_NAME);
-    expect(result.stderr).toContain("bare exact version literal");
-  });
-
-  it.each(nodeWorkflows)("%s holds the pin to the same grammar as the CLI", (file) => {
-    const guard = alignmentGuardScriptOf(file);
-    const opener = "typeof spec === 'string' && /";
-    const start = guard.indexOf(opener) + opener.length;
-    const literal = guard.slice(start, guard.indexOf("/.exec(spec)", start));
-
-    expect(EXACT_VERSION_LITERAL.source.endsWith("$")).toBe(true);
-    expect(literal).toBe(EXACT_VERSION_LITERAL.source.slice(0, -1));
-    expect(guard).toContain(`spec.length <= ${String(EXACT_VERSION_MAX_LENGTH)}`);
-    expect(guard).toContain("Number(part) <= Number.MAX_SAFE_INTEGER");
-  });
-
-  it.each(nodeWorkflows.flatMap((file) => NON_EXACT_PIN_SHAPES.map((spec) => [file, spec])))(
-    "%s fails on the malformed pin %s",
-    (file, spec) => {
-      const result = runAlignmentGuard(file, { "": declaring(spec) });
-
-      expect(result.status).not.toBe(0);
-      expect(result.stderr).toContain("bare exact version literal");
-    },
-  );
-
-  it.each(nodeWorkflows.flatMap((file) => EXACT_PIN_SHAPES.map((spec) => [file, spec])))(
-    "%s passes the SemVer 2.0.0 pin %s",
-    (file, spec) => {
-      const result = runAlignmentGuard(file, { "": declaring(spec) });
-
-      expect(result.stderr).toBe("");
-      expect(result.status).toBe(0);
-    },
-  );
-
-  it.each(nodeWorkflows)("%s fails on a workspace range beside an exact root pin", (file) => {
-    const result = runAlignmentGuard(file, {
-      "": declaring(EXACT_PIN),
-      "packages/tool": declaring("^0.2.0"),
-    });
-
-    expect(result.status).not.toBe(0);
-    expect(result.stderr).toContain("packages/tool");
-    expect(result.stderr).toContain("bare exact version literal");
-  });
-
-  it.each(nodeWorkflows)("%s reports a URL pin by its scheme only", (file) => {
-    const result = runAlignmentGuard(file, {
-      "": declaring("git+ssh://user:s3cret@host/repo.git"),
-    });
-    const output = `${result.stdout}${result.stderr}`;
-
-    expect(result.status).not.toBe(0);
-    expect(output).toContain("git+ssh:");
-    expect(output).not.toContain("s3cret");
-  });
-
-  it.each(nodeWorkflows)("%s replaces control characters in a displayed pin", (file) => {
-    const result = runAlignmentGuard(file, { "": declaring("0.11.1\n::error::injected") });
-    const output = `${result.stdout}${result.stderr}`;
-
-    expect(result.status).not.toBe(0);
-    expect(output).toContain("?::error::injected");
-    expect(output.split("\n").filter((line) => line.startsWith("::error::"))).toStrictEqual([]);
-  });
-
-  it.each(nodeWorkflows)("%s passes an exact pin declared only in a workspace", (file) => {
-    const result = runAlignmentGuard(file, { "": {}, "packages/tool": declaring(EXACT_PIN) });
-
-    expect(result.stderr).toBe("");
-    expect(result.status).toBe(0);
-  });
-
-  it.each(nodeWorkflows)("%s fails when no package.json declares the CLI", (file) => {
-    const result = runAlignmentGuard(file, { "": {} });
-
-    expect(result.status).not.toBe(0);
-    expect(result.stderr).toContain(CLI_NAME);
-    expect(result.stderr).toContain("No package.json declares");
   });
 });
 

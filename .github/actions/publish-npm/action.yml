@@ -2,7 +2,8 @@ name: Publish npm packages
 description: >-
   Publish one or more npm packages with provenance, in the given order, deriving
   the dist-tag from the version's prerelease suffix so a release candidate never
-  lands on `latest`. Authenticates through npm Trusted Publishing unless a
+  lands on `latest`. Skips versions already in the registry so partial releases
+  can be retried. Authenticates through npm Trusted Publishing unless a
   fallback token is supplied.
 
 inputs:
@@ -71,7 +72,7 @@ runs:
         fi
 
         package_version() {
-          node -p "JSON.parse(require('node:fs').readFileSync('$1/package.json','utf8')).version"
+          node -p "JSON.parse(require('node:fs').readFileSync(process.argv[1], 'utf8')).version" "$1/package.json"
         }
 
         tag="$DIST_TAG"
@@ -96,12 +97,32 @@ runs:
         fi
         echo "dist-tag=${tag}" >> "$GITHUB_OUTPUT"
 
+        lookup="$(mktemp -d)"
+        trap 'rm -rf "$lookup"' EXIT
+
         for package in "${packages[@]}"; do
-          echo "::group::npm publish ${package} (${tag})"
-          if [ "$PROVENANCE" = "true" ]; then
-            npm publish "$package" --access "$ACCESS" --tag "$tag" --provenance
+          # Bare names and owner/repo strings are registry/Git specs to npm.
+          # Resolve the documented directory input before passing it to npm.
+          package="$(cd "$package" && pwd -P)"
+          spec="$(node -p "const pkg = JSON.parse(require('node:fs').readFileSync(process.argv[1], 'utf8')); if (!pkg.name || !pkg.version) throw new Error('Package name and version are required'); pkg.name + '@' + pkg.version" "$package/package.json")"
+          echo "::group::npm publish ${spec} (${tag})"
+          if npm view "$spec" version --json > "$lookup/result" 2> "$lookup/error"; then
+            # An empty or unexpected response is not proof of publication.
+            node -e "const value = JSON.parse(require('node:fs').readFileSync(process.argv[1], 'utf8')); if (value !== process.argv[2]) process.exit(1)" "$lookup/result" "$(package_version "$package")"
+            echo "Skipping ${spec}; it is already published."
           else
-            npm publish "$package" --access "$ACCESS" --tag "$tag"
+            # Only npm's explicit E404 means the version is absent. Auth,
+            # transport and registry failures must stop the release.
+            if ! node -e "try { const value = JSON.parse(require('node:fs').readFileSync(process.argv[1], 'utf8')); process.exit(value.error?.code === 'E404' ? 0 : 1); } catch { process.exit(1); }" "$lookup/result"; then
+              echo "::error::Could not determine whether ${spec} is already published."
+              cat "$lookup/error" >&2
+              exit 1
+            fi
+            if [ "$PROVENANCE" = "true" ]; then
+              npm publish "$package" --access "$ACCESS" --tag "$tag" --provenance
+            else
+              npm publish "$package" --access "$ACCESS" --tag "$tag"
+            fi
           fi
           echo "::endgroup::"
         done

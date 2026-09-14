@@ -5,6 +5,7 @@ import {
   mkdirSync,
   mkdtempSync,
   readFileSync,
+  realpathSync,
   rmSync,
   writeFileSync,
 } from "node:fs";
@@ -430,7 +431,7 @@ describe("publish-npm script", () => {
     npmLog: string;
     output: string;
   } {
-    const cwd = scratchDirectory("standards-npm-");
+    const cwd = realpathSync(scratchDirectory("standards-npm-"));
     const npmLog = join(cwd, "npm.log");
     const output = join(cwd, "github-output");
 
@@ -442,7 +443,13 @@ describe("publish-npm script", () => {
         "utf8",
       );
     }
-    writeStub(cwd, "npm", 'echo "$*" >> "$NPM_LOG"\n');
+    writeStub(
+      cwd,
+      "npm",
+      `if [ "$1" = view ]; then echo '{ "error": { "code": "E404" } }'; exit 1; fi
+echo "$*" >> "$NPM_LOG"
+`,
+    );
 
     return {
       cwd,
@@ -464,9 +471,9 @@ describe("publish-npm script", () => {
 
     expect(runShell(script, fixture.cwd, fixture.env).status).toBe(0);
     expect(logLines(fixture.npmLog)).toStrictEqual([
-      "publish sidecar-a --access public --tag latest --provenance",
-      "publish sidecar-b --access public --tag latest --provenance",
-      "publish main --access public --tag latest --provenance",
+      `publish ${fixture.cwd}/sidecar-a --access public --tag latest --provenance`,
+      `publish ${fixture.cwd}/sidecar-b --access public --tag latest --provenance`,
+      `publish ${fixture.cwd}/main --access public --tag latest --provenance`,
     ]);
     expect(readFileSync(fixture.output, "utf8")).toBe("dist-tag=latest\n");
   });
@@ -484,7 +491,7 @@ describe("publish-npm script", () => {
     expect(runShell(script, fixture.cwd, fixture.env).status).toBe(0);
     expect(readFileSync(fixture.output, "utf8")).toBe(`dist-tag=${tag}\n`);
     expect(logLines(fixture.npmLog).at(-1)).toBe(
-      `publish main --access public --tag ${tag} --provenance`,
+      `publish ${fixture.cwd}/main --access public --tag ${tag} --provenance`,
     );
   });
 
@@ -497,6 +504,39 @@ describe("publish-npm script", () => {
     });
 
     expect(result.status).toBe(0);
-    expect(logLines(fixture.npmLog)).toStrictEqual(["publish main --access public --tag canary"]);
+    expect(logLines(fixture.npmLog)).toStrictEqual([
+      `publish ${fixture.cwd}/main --access public --tag canary`,
+    ]);
+  });
+  it("skips a published sidecar and resumes a partial release", () => {
+    const fixture = npmFixture({ "sidecar-a": "1.2.3", main: "1.2.3" });
+    writeStub(
+      fixture.cwd,
+      "npm",
+      `
+if [ "$1" = view ]; then
+  if [ "$2" = sidecar-a@1.2.3 ] && [ -f published ]; then echo '"1.2.3"'; exit 0; fi
+  echo '{ "error": { "code": "E404" } }'; exit 1
+fi
+if [[ "$2" == */sidecar-a ]]; then touch published; fi
+if [[ "$2" == */main ]] && [ ! -f failed-once ]; then touch failed-once; exit 1; fi
+echo "$*" >> "$NPM_LOG"
+`,
+    );
+    expect(runShell(script, fixture.cwd, fixture.env).status).toBe(1);
+    expect(runShell(script, fixture.cwd, fixture.env).status).toBe(0);
+    expect(logLines(fixture.npmLog)).toStrictEqual([
+      `publish ${fixture.cwd}/sidecar-a --access public --tag latest --provenance`,
+      `publish ${fixture.cwd}/main --access public --tag latest --provenance`,
+    ]);
+  });
+
+  it.each(["E401", "E503", "ENOTFOUND"])("does not publish after a %s lookup failure", (code) => {
+    const fixture = npmFixture({ main: "1.2.3" });
+    writeStub(fixture.cwd, "npm", `echo '{ "error": { "code": "${code}" } }'; exit 1`);
+    const result = runShell(script, fixture.cwd, fixture.env);
+    expect(result.status).toBe(1);
+    expect(result.stdout).toContain("Could not determine whether");
+    expect(existsSync(fixture.npmLog)).toBe(false);
   });
 });
