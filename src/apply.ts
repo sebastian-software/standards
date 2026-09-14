@@ -8,6 +8,7 @@ import type { SyncContext } from "./sync.js";
 
 import { upsertSection } from "./branding.js";
 import {
+  extraIgnorePatterns,
   findNestedConfigDirs,
   IGNORE_FILE,
   mergeIgnoreFile,
@@ -192,6 +193,29 @@ function validateReadmeMigration(context: SyncContext): void {
   }
 }
 
+function needsIgnoreMigration(context: SyncContext): boolean {
+  for (const unit of context.units) {
+    const mappings = unit.scopes.flatMap((scope) => scope.managed);
+    if (
+      mappings.some(
+        (mapping) =>
+          mapping.target === OXFMT_CONFIG &&
+          matchesPlatform(mapping.platform, context.meta.platform) &&
+          extraIgnorePatterns(
+            readTarget(context, join(unit.dir, mapping.target)),
+            readReference(context, mapping.source),
+          ).length > 0,
+      )
+    )
+      return true;
+  }
+  return false;
+}
+
+function migrationConfigDirs(context: SyncContext): string[] {
+  return needsIgnoreMigration(context) ? findNestedConfigDirs(context.cwd) : [];
+}
+
 export function runApply(cwd: string, currentYear: number, options?: ApplyOptions): Change[] {
   const context = createContext(cwd, currentYear, options?.preReadMeta);
 
@@ -213,7 +237,7 @@ export function runApply(cwd: string, currentYear: number, options?: ApplyOption
   const changes: Change[] = [];
   // Searched before any unit writes, so a workspace config this run creates never
   // counts as one the repository's own ignore patterns used to stop at.
-  const configDirs = findNestedConfigDirs(cwd);
+  const configDirs = migrationConfigDirs(context);
 
   for (const unit of context.units) {
     for (const scope of unit.scopes) {

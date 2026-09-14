@@ -1,201 +1,50 @@
-# Onboarding a new repo to the standards system
+# Bring a repository onto standards
 
-This runbook walks a maintainer through bringing a repo under the
-`@sebastian-software/standards` system. It exists so that no step
-gets skipped on the way from "empty repo" to "Renovate keeps it
-current, agent does the judgement work, a human merges". The
-agent-driven half is partially manual today (see
-[#13](https://github.com/sebastian-software/standards/issues/13))
-— the runbook calls that out where it matters.
+Start here when a repository has no `.repometa.json`. For a repository already
+using standards, follow [update and recovery](../cli.md) instead. This guide
+targets the CLI release shipping standards version 16 or newer.
 
-Two variants are covered:
+| Starting point           | Path                                                                                                         |
+| ------------------------ | ------------------------------------------------------------------------------------------------------------ |
+| New Node repository      | Use [repo-template](https://github.com/sebastian-software/repo-template), then its getting-started guide     |
+| Existing Node repository | Follow steps 1–5 below; review the baseline toolchain migration                                              |
+| Rust-only repository     | Follow the same steps with an exact `pnpm dlx` CLI version; see [Rust setup](../../reference/rust/README.md) |
 
-- **Variant A — New repo.** A fresh GitHub or Forgejo repo with no
-  history under the standards. This is the default.
-- **Variant B — Legacy repo onboarding.** An existing repo with a
-  custom toolchain that needs to converge to the standards (Prettier
-  → oxfmt, custom CI → seeded CI, etc.). Walks Variant A plus the
-  manual judgement work from [`changes/0001-baseline.md`](../../changes/0001-baseline.md).
+You need a working branch, Node.js 24 or newer, pnpm, and repository settings
+access for the final automation setup. Local agent execution additionally needs
+`claude` or `codex` installed and authenticated. Previewing needs neither agent.
 
-## Cross-references
+## 1. Choose the CLI and repository metadata
 
-- [SKILL.md](../../SKILL.md) — agent contract, pull-mode wiring,
-  branch protection, merge policy. The single source of truth for
-  what the agent does.
-- [README.md](../../README.md) — three-repo overview, Renovate
-  model, file ownership table.
-- [`CLAUDE.md`](../../CLAUDE.md) — the seeded one-line pointer at
-  `AGENTS.md`, so Claude Code and other agents read the same file.
-- Changelogs:
-  [`0001-baseline.md`](../../changes/0001-baseline.md),
-  [`0002-renovate-pending.md`](../../changes/0002-renovate-pending.md),
-  [`0003-platform-aware-ci.md`](../../changes/0003-platform-aware-ci.md),
-  [`0004-ci-workflow-forgejo.md`](../../changes/0004-ci-workflow-forgejo.md).
-- Branch-protection snippet:
-  [SKILL.md#branch-protection-setup](../../SKILL.md#branch-protection-setup).
-- Agent wiring and recreated drift branches:
-  [SKILL.md#pull-mode-agent-wiring](../../SKILL.md#pull-mode-agent-wiring).
+For a Node project with a root `package.json`, install the reviewed CLI release:
 
-## Variant A — New repo
-
-The following steps assume you have shell access, `gh` (for GitHub)
-or `forgejo` CLI / curl (for Forgejo), and `pnpm`.
-
-### 1. Create the repo
-
-GitHub:
-
-```bash
-gh repo create sebastian-software/<name> --public --default-branch main
+```sh
+pnpm add --save-dev --save-exact @sebastian-software/standards@<version>
+pnpm exec standards init --platform github --visibility oss --since <year>
 ```
 
-Forgejo (via API or web UI):
+Replace the placeholders. Use `forgejo` for that platform, `private` for an
+internal repository, and the project's original creation year. `init` prompts
+for missing values; `--yes` enables non-interactive use. It starts the standards
+stamp at `0`. Do not use `init --force` merely to change one metadata field:
+edit that field in `.repometa.json` and preserve the migration stamp.
 
-```bash
-curl -X POST "https://<forgejo-host>/api/v1/orgs/sebastian-software/repos" \
-  -H "Authorization: token $FORGEJO_TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{"name": "<name>", "default_branch": "main", "private": false}'
+For a Rust-only project, omit the Node dependency and run the same CLI through
+an exact version for every command:
+
+```sh
+pnpm --config.minimum-release-age=0 dlx @sebastian-software/standards@<version> init \
+  --platform github --visibility oss --since <year>
 ```
 
-In both cases the default branch must be `main`. The merge policy and
-the seeded CI workflows assume this.
+The release-age override allows an explicitly selected fresh release. Keep
+that exact version in the Rust workflow too; pnpm needs an explicit version in
+`pnpm/action-setup` when no `packageManager` field exists.
 
-### 2. Set the `managed-deps` topic
+### A Node package below the repository root
 
-The self-hosted Renovate worker discovers repos via
-`autodiscoverTopics: ["managed-deps"]`. Without the topic, Renovate
-ignores the repo and step 5 onward does nothing.
-
-GitHub:
-
-```bash
-gh api repos/sebastian-software/<name>/topics \
-  -X PUT \
-  -f names[]=managed-deps
-```
-
-Forgejo:
-
-```bash
-curl -X PUT "https://<forgejo-host>/api/v1/repos/sebastian-software/<name>/topics" \
-  -H "Authorization: token $FORGEJO_TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{"topics": ["managed-deps"]}'
-```
-
-### 3. (Node repos only) `pnpm init`
-
-If the repo is a Node.js project but does not yet have a
-`package.json`, create one. Without `package.json`, the `node` scope
-in the manifest does not detect (see `manifest.json#scopes.node.detect`)
-and none of the Node-side seeded files land.
-
-```bash
-cd <repo-clone>
-pnpm init
-```
-
-Then add the CLI the repo's CI will run, pinned to an exact version:
-
-```bash
-pnpm add --save-dev --save-exact @sebastian-software/standards
-```
-
-The seeded CI runs `pnpm exec standards check`, so the lockfile
-decides what executes on every pull request instead of whatever npm
-published minutes earlier. Renovate's `:standards` preset raises the
-pin as a reviewable pull request.
-
-The exact pin is gated, not only a convention: `standards check`
-reports a declaration that is not a bare exact version literal (a
-range, a tag, `catalog:`, `workspace:*`, an alias) as a blocking
-`pin` finding and exits `3`, and so does a repository whose CI runs
-the CLI but whose `package.json` does not declare it. The seeded CI
-guard checks the same rule. `standards apply` does not repair it —
-fix the `package.json` and refresh the lockfile.
-
-Rust-only or documentation-only repos skip this step: they have no
-lockfile to hold the version, so their CI pins it in the command
-itself (`dlx @sebastian-software/standards@<x.y.z>`) and a Renovate
-regex manager keeps it current — see
-[`reference/rust/README.md`](../../reference/rust/README.md). That
-`dlx` pin is not machine-checked.
-
-**Node workspace in a subdirectory?** A repo whose `package.json`
-lives in `node/` or `crates/<name>-node/` rather than at the root
-declares those directories in `.repometa.json#workspaces` (step 4);
-without that, scope detection finds no `package.json` at the root and
-the repo silently receives nothing from the `node` scope. Only
-per-package configuration lands there — see
-[`changes/0012-nested-node-workspaces.md`](../../changes/0012-nested-node-workspaces.md).
-
-### 4. Initialise `.repometa.json`
-
-```bash
-pnpm --config.minimum-release-age=0 dlx @sebastian-software/standards init \
-  --platform <github|forgejo> \
-  --visibility <oss|private> \
-  --since <year>
-```
-
-`--config.minimum-release-age=0` is required on every `pnpm dlx
-@sebastian-software/standards …` call (init/check/apply): pnpm 11 holds back
-versions younger than 24h, so without it a repo onboarded right after a
-standards release seeds and stamps against a stale version.
-
-All flags are optional. Without `--yes`, missing values are prompted
-interactively:
-
-- `--platform` — `github` or `forgejo`. The interactive prompt
-  default is derived from `git remote get-url origin`
-  (`github.com` → `github`, everything else → `forgejo`). The
-  platform stamp routes platform-scoped manifest entries (e.g. the
-  CI seeds).
-- `--visibility` — `oss` (default) or `private`. Selects the README
-  branding footer.
-- `--since` — initial copyright year. Defaults to the year of the
-  repository's first git commit; falls back to the current year if
-  there is no history yet.
-- `--yes` — non-interactive mode; fails fast if a required value is
-  neither flagged nor defaultable.
-- `--force` — overwrite an existing `.repometa.json` (e.g. when
-  adding `platform` to a legacy stamp). `exceptions`, `workspaces`,
-  and the explicit README owner are carried over; everything else is
-  written fresh.
-
-`workspaces` is not prompted for. Add it by hand where a Node
-workspace lives in a subdirectory:
-
-```json
-{ "standards": 0, "visibility": "oss", "since": 2026, "platform": "github", "workspaces": ["node"] }
-```
-
-The stamp lands at `.repometa.json#standards = 0`. The first
-`standards apply` (typically the Renovate drift PR in step 7) bumps
-it to the current `manifest.json#currentVersion`.
-
-#### Native mdtheme ownership
-
-For a native Rust project, set `"readme": { "owner": "mdtheme" }` in
-`.repometa.json`. Keep the authored content in `README.md.src` and exactly one
-regular `mdtheme.yaml` or `mdtheme.yml` at the repository root. Generate
-`README.md` with `mdtheme --write` before running `standards apply`.
-
-Remove the old Sebastian branding marker section during migration. mdtheme
-owns the complete output, including the Sebastian and Ferramenta frames.
-Standards continues managing other files and never rewrites this README.
-The output must carry mdtheme's generated-file notice.
-
-No `package.json`, TypeScript config, or npm scripts are required. Pin the
-native CLI per project, for example with mise, and run `mdtheme --check` in CI.
-Standards checks static ownership prerequisites; mdtheme validates its config
-and checks the rendered output. See [the ownership decision](../adr/generated-readme-ownership.md).
-
-#### Delegating README branding to markdown-themer
-
-A repository whose README is generated by `markdown-themer` opts out of the
-standards branding footer explicitly in `.repometa.json`:
+Install the exact dependency in its package directory, and declare its path in
+the root `.repometa.json` before applying standards:
 
 ```json
 {
@@ -203,218 +52,131 @@ standards branding footer explicitly in `.repometa.json`:
   "visibility": "oss",
   "since": 2026,
   "platform": "github",
-  "readme": { "owner": "markdown-themer" }
+  "workspaces": ["node"]
 }
 ```
 
-With that exact owner, `standards apply`, `standards check`, and `standards sync`
-skip only the `sebastian-software-branding` section in `README.md`. The
-consumer `AGENTS.md` section, managed files, seeded files, and version stamp
-remain under standards control. An unsupported owner is rejected so a typo
-cannot silently disable the footer.
+Commands still target the repository root. If the root cannot resolve the
+nested CLI, invoke the same reviewed exact version through `pnpm dlx`.
+Only workspace-marked configuration is applied inside declared packages;
+repository-wide files stay at the root. See [scopes and ownership](../standards-model.md).
 
-Before merging this opt-in, verify the markdown-themer migration as a small
-repository-level contract: `README.md.src` and the supported config live at
-the repository root; exactly one config is discoverable; `markdown-themer
---write` produces the static generated-file notice; and no legacy branding
-markers remain. The package scripts should call `markdown-themer --write` and
-`markdown-themer --check`, and the CI job should run the check command. Verify
-these through the package's CLI and the repository's CI command. Standards
-checks the package scripts but deliberately does not try to parse arbitrary
-YAML or shell; the consumer repository owns proving that its CI gate runs
-`readme:check`.
+### A generated README
 
-### 5. Merge the Renovate onboarding PR
+Before the first apply, choose the README owner. Native mdtheme users set
+`"readme": { "owner": "mdtheme" }`, keep `README.md.src` and exactly one root
+`mdtheme.yaml` or `mdtheme.yml`, and generate `README.md` with the pinned tool.
+Remove any old standards branding section from that generated output through
+its source/generator. Standards then checks ownership prerequisites and leaves
+the whole README to mdtheme.
 
-Once the topic is set, the next Renovate worker run opens an
-onboarding PR titled `Configure Renovate`. Wait time depends on your
-worker cadence (self-hosted Renovate typically every 15 min on the
-default schedule).
+The legacy `markdown-themer` owner is also supported. Its source, configuration,
+package scripts and output must satisfy the
+[README ownership contract](../adr/generated-readme-ownership.md).
+Without an explicit owner, standards manages its branding marker section only.
 
-Before merging, edit the file if Renovate wrote
-`local>sebastian-software/renovate-config` — the canonical form is
-`github>` on both platforms (the preset repo lives on GitHub). See
-[SKILL.md#renovate-onboarding](../../SKILL.md#renovate-onboarding) for
-the exact JSON shape.
+## 2. Preview and complete the initial migration
 
-Merge the onboarding PR via the platform UI or `gh pr merge`.
+From the repository root:
 
-### 6. Set branch protection and private vulnerability reporting
-
-Without hard required status checks on `main`, the CI guard from the
-seeded `ci.yml` is soft — a maintainer (or misclick) could merge a
-red state, and the `.standards/pending.json` guard would lose its
-teeth. The whole merge policy in
-[SKILL.md#merge-policy](../../SKILL.md#merge-policy) presupposes
-hard required status checks.
-
-GitHub (idempotent one-shot via `gh`):
-
-```bash
-gh api repos/sebastian-software/<name>/branches/main/protection -X PUT \
-  -F required_status_checks.strict=true \
-  -F required_status_checks.contexts[]=ci \
-  -F enforce_admins=true \
-  -F required_pull_request_reviews= \
-  -F restrictions=
+```sh
+pnpm exec standards sync --dry-run
+pnpm exec standards sync --agent codex
 ```
 
-Forgejo: the API is `POST /repos/{owner}/{repo}/branch_protections`
-with an equivalent payload. Verification on Forgejo is deferred
-until the first Forgejo consumer repo opts in; once it does, mirror
-the GitHub setup above and record the exact payload in SKILL.md.
-See
-[SKILL.md#branch-protection-setup](../../SKILL.md#branch-protection-setup).
+The preview writes nothing. The actual sync first records the migration
+baseline, applies managed files and missing seeds, then runs the agent on the
+applicable numbered migrations. It leaves a working-tree diff for review.
+If it fails or is interrupted, rerun sync; keep `.standards/pending.json` until
+the work is complete. See [recovery](../cli.md#resume-an-interrupted-sync).
 
-Private vulnerability reporting is a **per-repository GitHub
-setting**, off by default, and no `standards` command can set it —
-the CLI writes files, not repository settings. Until it is on, the
-`security/advisories/new` link in the seeded issue chooser 404s and
-the Security tab has no "Report a vulnerability" button for
-`SECURITY.md` to point at, which is why the seeds put the
-`security@sebastian-software.de` inbox first (see
-[`changes/0010-private-reporting-routes.md`](../../changes/0010-private-reporting-routes.md)).
+For manual migration, read the applicable [changes](../../changes/), run
+`standards apply --from-version 0 --emit-pending .standards/pending.json`, and
+complete each judgement step. Run `standards check` and the repository's code
+gate, then remove the pending marker when those steps are complete.
 
-```bash
-gh api -X PUT repos/sebastian-software/<name>/private-vulnerability-reporting
+For an existing project, the [baseline migration](../../changes/0001-baseline.md)
+can involve replacing Prettier, reconciling lint configuration and adapting
+package scripts. Existing seeded files are preserved; compare them with the
+references explicitly. Record intentional manual deviations in
+`.repometa.json#exceptions`. Exceptions guide the reviewer/agent; they do not
+suppress managed-file checks.
+
+## 3. Validate and review the result
+
+```sh
+pnpm agent:check
+pnpm exec standards ci
+git diff
 ```
 
-A companion `scripts/onboard-repo.sh` (or an Ansible task in the
-proxmox repo) that wraps steps 2 + 6 in one shot is a follow-up
-improvement, tracked in this runbook's surrounding plan
-[`docs/plan/0011-onboarding-runbook.md`](../plan/0011-onboarding-runbook.md).
+Use the project's own code gate if it has no `agent:check`. For Rust projects,
+also run the checks listed in [Rust setup](../../reference/rust/README.md).
 
-### 7. Await the first drift PR
+`standards ci` is available with standards version 16 and newer. Older CLI
+releases require their seeded pending, blocked and alignment guards plus
+`standards check`; raise the exact CLI pin before replacing those guards.
+The pending marker intentionally keeps CI red during an incomplete migration.
+A successful standards check alone does not prove the code build/tests passed.
 
-Once the topic is set, the standards stamp is initialised, and the
-Renovate preset is active, the next worker run opens a drift PR
-titled `chore(standards): v<N>`. It contains:
+## 4. Enable Renovate and the external agent
 
-- The `.repometa.json` stamp bump from `0` to the current
-  `manifest.json#currentVersion`, together with the raised CLI pin —
-  the devDependency for a Node repo, the version in the workflow for
-  a Rust-only one. Stamp and CLI move in the same pull request; a CLI
-  older than the stamp reports drift that does not exist.
-- All mechanical file writes from `standards apply` (managed +
-  seeded + branding section).
-- `.standards/pending.json` describing the judgement steps for the
-  changelogs that need work (skipped if none).
-- Label `standards:needs-agent` (GitHub) and/or the presence of
-  `pending.json` (Forgejo).
+Use both presets in `renovate.json` on GitHub and Forgejo:
 
-**Agent run 1.** The external pull-mode agent picks the PR up on its
-own — see
-[SKILL.md#pull-mode-agent-wiring](../../SKILL.md#pull-mode-agent-wiring).
-A run takes several minutes; it ends with a pushed branch without
-`pending.json` and the `standards:needs-agent` label removed. Do not tick Renovate's rebase/retry checkbox afterwards unless
-you mean to restart the migration: Renovate regenerates the branch, the
-agent's commits are lost, and run 1 repeats — see
-[SKILL.md#recreated-drift-branches](../../SKILL.md#recreated-drift-branches).
+```json
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": [
+    "github>sebastian-software/renovate-config",
+    "github>sebastian-software/renovate-config:standards"
+  ]
+}
+```
 
-If no agent reacts, work the PR by hand:
+Set the `managed-deps` repository topic and confirm the self-hosted Renovate
+worker can access the repository. The topic enables discovery; the presets
+supply policy. Merge any Renovate onboarding PR after checking those presets.
 
-- Check out the drift PR branch locally.
-- Read `.standards/pending.json` (it carries the same prompt that
-  `standards sync --dry-run` would print).
-- Walk the judgement steps yourself or run `standards sync` locally
-  (`claude` or `codex`).
-- Commit the judgement changes to the PR branch and delete
-  `.standards/pending.json`.
+The worker must allow the standards post-upgrade command. It applies files
+and writes a pending marker; an external agent performs judgement work.
+Configure that agent separately using [the agent contract](../../SKILL.md).
+See the [rollout guide](https://github.com/sebastian-software/renovate-config/blob/main/docs/standards-rollout.md)
+for the worker prerequisites and the two independent updates:
 
-Once `pending.json` is gone, the CI guard step from the seeded
-`ci.yml` (`test ! -f .standards/pending.json`) turns green.
+- The integer standards stamp triggers the migration PR and pending work.
+- The npm CLI version is updated as a separate dependency. A migration may
+  need to raise that pin before it can validate the new stamp.
 
-### 8. Review the pre-review LLM comment and merge
+Do not assume these updates arrive in one PR. The final migration merge is a
+human step. Avoid Renovate's rebase/retry checkbox after agent work unless you
+intend to recreate the branch and repeat the migration.
 
-The second agent run (see
-[SKILL.md#two-runs-one-external-wiring](../../SKILL.md#two-runs-one-external-wiring))
-posts a PR comment summarising the changes, checking SKILL.md
-rules, and recommending `merge` or `hold`. Run 2 has not been
-observed on a drift PR yet — until it is, the maintainer
-reads the diff and SKILL.md rules manually without an LLM
-pre-comment, and merges via Variant A from
-[`changes/0001`](../../changes/0001-baseline.md) and the merge
-policy in [SKILL.md#merge-policy](../../SKILL.md#merge-policy).
+## 5. Finish repository settings
 
-The final merge is **always a human step**. Automerge is
-deliberately disabled for `standards:` PRs.
+After the workflow has run, configure branch protection on `main` to require
+its actual check names. The reference lanes are `CI / Check` and
+`Standards / Consistency`. A repository already requiring `check` must keep
+that aggregate job until protection is migrated. Confirm the workflow and
+required contexts together; a renamed job can otherwise block every PR.
+See [branch protection](../../SKILL.md#branch-protection-setup).
 
-### 9. Apply the label taxonomy
+Also:
 
-Labels are org-wide policy but not managed by the CLI. Create them
-once per repo from `reference/common/labels.json` and rename any
-pre-existing spellings instead of recreating them, so open issues keep
-their labels. The `gh label` snippets and the migration table live in
-[README.md#label-taxonomy](../../README.md#label-taxonomy).
-
-Values of the `area:` prefix are repository-specific — pick them from
-the repo's actual subsystems.
-
-## Variant B — Legacy repo onboarding
-
-Onboarding an existing repo with a custom toolchain follows the same
-eight steps as Variant A, with these adjustments:
-
-- **Step 4 — `.repometa.json` initialisation.** Pick the `since`
-  year to reflect the original creation year of the repo, not the
-  year of the standards adoption. The branding footer's copyright
-  range uses this value.
-- **Step 7 — first drift PR is large.** The first
-  `standards apply` against a legacy repo seeds _every_ applicable
-  file at once, plus the
-  [`changes/0001-baseline.md`](../../changes/0001-baseline.md)
-  judgement steps fire: Prettier removal, oxfmt/oxlint adoption,
-  `package.json` scripts convergence to the standards shape, ESLint
-  config migration. Plan for a manually-walked review session
-  before merging. The pending payload in `.standards/pending.json`
-  carries every changelog step from `0001` upward; do not skip any
-  step that does not have an explicit exception in
-  `.repometa.json#exceptions`.
-- **Step 7 — exceptions.** If a legacy repo deliberately keeps a
-  non-standard piece (e.g. Prettier because the team has external
-  authoring tooling), document the exception in
-  `.repometa.json#exceptions` (e.g. `"keeps-prettier"`) before
-  walking the judgement steps. The agent (and the human reviewer)
-  skips the matching steps.
-- **Step 8 — manual diff review is mandatory.** Until the external
-  pre-review agent is wired, the maintainer manually checks each
-  changelog's judgement step against the SKILL.md rules. For a
-  large legacy migration this is an hour of careful reading, not a
-  rubber-stamp.
-
-Beyond these adjustments, Variant B is identical to Variant A.
-
-## After onboarding
-
-The repo is now in the standards rotation:
-
-- Future Renovate worker runs detect drift the moment the package's
-  `manifest.json#currentVersion` advances, and open a new
-  `chore(standards): v<N>` PR.
-- CI keeps the repo honest via the seeded `ci.yml` workflow.
-- Branch protection keeps the merge gate honest.
-- The agent (once wired) keeps the judgement loop honest.
-- The human merge stays the final word.
+- Apply [the label taxonomy](../labels.md) to this repository.
+- For GitHub repositories, enable private vulnerability reporting if the
+  project's security policy links to it. Until enabled, keep the published
+  security contact available.
+- Check repository URLs in seeded issue forms, security documentation and
+  package metadata. They are editable seeds after creation.
 
 ## Troubleshooting
 
-- **No Renovate PR after step 2.** Verify the topic is exactly
-  `managed-deps` (not `managed_deps`, `standards-managed`, etc.) and
-  that the Renovate worker has read access to the repo. Self-hosted
-  Renovate worker logs show whether autodiscovery picked up the
-  topic.
-- **`standards apply` writes nothing.** Check `.repometa.json`
-  exists and parses, and that the relevant scope detects (`node`
-  needs `package.json`, `rust` needs `Cargo.toml`) — in a repo whose
-  Node workspace is a subdirectory, that means `workspaces` has to
-  name it. For platform-scoped entries, also check `platform` is set;
-  see
-  [`changes/0003-platform-aware-ci.md`](../../changes/0003-platform-aware-ci.md).
-- **`standards check` reports `platform is missing`.** Legacy stamp
-  without `platform`. Run
-  `pnpm dlx @sebastian-software/standards init --force --platform <p>`
-  to migrate, then re-run `apply`.
-- **CI is red on the drift PR because of `.standards/pending.json`.**
-  Expected. The CI guard step refuses to pass until the agent (or a
-  human stand-in) completes the judgement work and removes the
-  marker file.
+| Symptom                                               | First check                                                         |
+| ----------------------------------------------------- | ------------------------------------------------------------------- |
+| No Renovate PR                                        | Exact `managed-deps` topic, worker access and both presets          |
+| Drift PR has no mechanical changes or pending payload | Worker logs and its allowed post-upgrade command                    |
+| No Node configuration appears                         | Root `package.json`, or declared `.repometa.json#workspaces`        |
+| Platform is missing                                   | Add `platform` to the existing metadata without resetting its stamp |
+| Pin or stamp failure (exit 3)                         | Installed CLI version, exact dependency declaration and lockfile    |
+| Pending marker remains                                | Resume sync or finish manual steps; inspect any blocked marker      |
+| Required check never reports                          | Compare branch protection with the actual workflow job names        |

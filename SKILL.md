@@ -254,7 +254,7 @@ cannot cause a retry loop.
   which member blocked — for the pin-shape member it names the specifier class
   (a range, a `catalog:` reference, a URL) and never copies a URL specifier or
   its credentials, and `expectedCliVersion` and `observedCliVersion` may agree.
-  The seeded CI guard hard-fails on it.
+  The shared `standards ci` command hard-fails on it.
 - Every other unfinished check sets `blocking: false` and lists the check in
   `failedChecks`. Those failures already fail the repository's own lanes; the
   marker records them as context for the reviewer rather than as a second
@@ -263,7 +263,7 @@ cannot cause a retry loop.
   `null` where the value could not be read.
 - `retry` states, in one sentence, what has to happen before the file is
   removed.
-- The seeded CI guard **parses** the marker rather than matching lines, and
+- The shared `standards ci` command **parses** the marker rather than matching lines, and
   fails closed on a file it cannot read: invalid JSON, or a marker that does not
   satisfy the schema above, fails the pull request exactly as `blocking: true`
   does. A guard whose purpose is to stop an unvalidated result must not be

@@ -1,11 +1,11 @@
 import type { AgentName } from "./agent.js";
 import type { InitOptions, Visibility } from "./init.js";
-import type { Platform, RepoMeta } from "./repo.js";
+import type { Platform } from "./repo.js";
 
-import { AGENTS, buildPrompt, runAgent } from "./agent.js";
+import { AGENTS } from "./agent.js";
 import { runApply } from "./apply.js";
-import { selectChanges } from "./changes.js";
 import { runCheck } from "./check.js";
+import { ciMarkerProblems } from "./ci.js";
 import {
   InitError,
   parsePlatformFlag,
@@ -13,15 +13,17 @@ import {
   parseVisibilityFlag,
   runInit,
 } from "./init.js";
-import { getPackageRoot, loadCliName, loadManifest } from "./manifest.js";
-import { inspectPin } from "./pin.js";
-import { detectScopes, readRepoMeta } from "./repo.js";
+import { runLocalSync } from "./local-sync.js";
+import { getPackageRoot, loadManifest } from "./manifest.js";
+import { readRepoMeta } from "./repo.js";
 import {
   checkExitCode,
   out,
+  reportApplied,
   reportFindingsJson,
   reportFindingsText,
   reportStaleCli,
+  staleDisplaySpecifier,
 } from "./report.js";
 import { buildPendingPayload, writePending } from "./sync.js";
 
@@ -36,11 +38,14 @@ Commands:
           finding — the alignment class: the installed CLI is older than the
           repository's stamp, or the @sebastian-software/standards pin is not a
           bare exact version literal (apply does not repair the pin)
+  ci      Check pending/blocked agent markers, then run check (including --json)
+          Exit 1 for unfinished or invalid markers; otherwise the same codes as check
   apply   Write managed files, seed missing ones, update branding sections, bump the stamp
           [--from-version <int>: explicit baseline for pending-marker selection]
           [--emit-pending <path>: write a JSON marker describing pending judgement work]
   sync    apply + run an agent (claude or codex) on the changelog entries that need judgement
-          [--agent claude|codex] [--dry-run: print the agent prompt instead of running]
+          [--agent claude|codex] [--dry-run: preview the prompt without writing files]
+          Failed runs keep .standards/pending.json; rerun sync to resume
 
 apply and sync write nothing and exit 3 when the installed CLI is older than the
 repository's stamp, because they cannot validate what they would change; pass
@@ -110,12 +115,6 @@ function getPlatformFlag(args: string[]): Platform | undefined {
   return raw === undefined ? undefined : parsePlatformFlag(raw);
 }
 
-function reportApplied(changes: ReturnType<typeof runApply>): void {
-  for (const change of changes) {
-    out(`${change.action.padEnd(8)} ${change.path}`);
-  }
-}
-
 function readStdinIsTty(): boolean {
   // Node's types narrow `isTTY` to `true | undefined`, but the runtime contract
   // is the broader `boolean | undefined`. Widen via a typed indirection so the
@@ -183,17 +182,6 @@ function reportInitResult(
   out("Next: run `standards apply` to populate managed and seeded files.");
 }
 
-/**
- * The declared specifier `reportStaleCli` names. It is only printed when the
- * CLI is behind the repository's stamp, so the `package.json` walk runs only
- * then, and every other `apply` and `sync` run stays as cheap as before.
- */
-function staleDisplaySpecifier(cwd: string, meta: RepoMeta, current: number): string | undefined {
-  return meta.standards > current
-    ? inspectPin(cwd, meta, loadCliName(getPackageRoot())).displaySpecifier
-    : undefined;
-}
-
 function applyCommand(cwd: string, currentYear: number, args: string[]): void {
   const explicitFromVersion = getFromVersion(args);
   const emitPending = getEmitPending(args);
@@ -251,59 +239,19 @@ function checkCommand(cwd: string, currentYear: number, args: string[]): void {
   }
 }
 
-function syncCommand(cwd: string, currentYear: number, args: string[]): void {
-  const agent = getAgent(args);
-  const packageRoot = getPackageRoot();
-  const manifest = loadManifest(packageRoot);
-  const meta = readRepoMeta(cwd);
-  const fromVersion = meta.standards;
-
-  // Stop before `apply` and before the agent: a CLI that cannot validate this
-  // repository must not dispatch an agent to change it either.
-  if (
-    reportStaleCli(
-      fromVersion,
-      manifest.currentVersion,
-      staleDisplaySpecifier(cwd, meta, manifest.currentVersion),
-    )
-  ) {
+function ciCommand(cwd: string, currentYear: number, args: string[]): void {
+  const problems = ciMarkerProblems(cwd);
+  if (problems.length > 0) {
+    process.stderr.write(`${problems.join("\n")}\n`);
+    process.exitCode = 1;
     return;
   }
-
-  reportApplied(runApply(cwd, currentYear, { preReadMeta: meta }));
-
-  const scopeNames = detectScopes(cwd, manifest);
-  const entries = selectChanges(packageRoot, fromVersion, scopeNames);
-  if (entries.length === 0) {
-    out("✓ No changelog entries require agent work.");
-    return;
-  }
-
-  const prompt = buildPrompt({
-    packageRoot,
-    meta,
-    scopeNames,
-    fromVersion,
-    toVersion: manifest.currentVersion,
-    changes: entries,
-  });
-  dispatchAgent({ args, agent, prompt, cwd });
+  checkCommand(cwd, currentYear, args);
 }
 
-type AgentDispatch = {
-  args: string[];
-  agent: AgentName;
-  prompt: string;
-  cwd: string;
-};
-
-function dispatchAgent(dispatch: AgentDispatch): void {
-  if (dispatch.args.includes("--dry-run")) {
-    process.stdout.write(dispatch.prompt);
-    return;
-  }
-  out(`Running ${dispatch.agent}…`);
-  process.exitCode = runAgent(dispatch.agent, dispatch.prompt, dispatch.cwd);
+function printUsage(): void {
+  process.stdout.write(USAGE);
+  process.exitCode = 2;
 }
 
 async function main(): Promise<void> {
@@ -313,8 +261,7 @@ async function main(): Promise<void> {
 
   switch (command) {
     case "init": {
-      const isTty = readStdinIsTty();
-      await initCommand({ cwd, currentYear, args: rest, isTty });
+      await initCommand({ cwd, currentYear, args: rest, isTty: readStdinIsTty() });
       break;
     }
     case "apply": {
@@ -325,14 +272,20 @@ async function main(): Promise<void> {
       checkCommand(cwd, currentYear, rest);
       break;
     }
+    case "ci": {
+      ciCommand(cwd, currentYear, rest);
+      break;
+    }
     case "sync": {
-      syncCommand(cwd, currentYear, rest);
+      runLocalSync(cwd, currentYear, {
+        agent: getAgent(rest),
+        dryRun: hasFlag(rest, "--dry-run"),
+      });
       break;
     }
     case undefined:
     default: {
-      process.stdout.write(USAGE);
-      process.exitCode = 2;
+      printUsage();
     }
   }
 }

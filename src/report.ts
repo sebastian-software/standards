@@ -1,6 +1,10 @@
+import type { Change } from "./apply.js";
 import type { Finding } from "./check.js";
+import type { RepoMeta } from "./repo.js";
 
 import { stampFinding } from "./check.js";
+import { getPackageRoot, loadCliName } from "./manifest.js";
+import { inspectPin } from "./pin.js";
 
 /**
  * Exit codes are the only signal the seeded CI can read: it calls
@@ -81,4 +85,23 @@ export function reportStaleCli(
   out(formatFinding(finding));
   process.exitCode = BLOCKING_EXIT_CODE;
   return true;
+}
+
+/**
+ * The declared specifier `reportStaleCli` names. It is only printed when the
+ * CLI is behind the repository's stamp, so the `package.json` walk runs only
+ * then, and every other `apply` and `sync` run stays as cheap as before.
+ */
+export function staleDisplaySpecifier(
+  cwd: string,
+  meta: RepoMeta,
+  current: number,
+): string | undefined {
+  return meta.standards > current
+    ? inspectPin(cwd, meta, loadCliName(getPackageRoot())).displaySpecifier
+    : undefined;
+}
+
+export function reportApplied(changes: Change[]): void {
+  for (const change of changes) out(`${change.action.padEnd(8)} ${change.path}`);
 }
