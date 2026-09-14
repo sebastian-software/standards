@@ -1,6 +1,6 @@
 import type { AgentName } from "./agent.js";
 import type { InitOptions, Visibility } from "./init.js";
-import type { Platform } from "./repo.js";
+import type { Platform, RepoMeta } from "./repo.js";
 
 import { AGENTS, buildPrompt, runAgent } from "./agent.js";
 import { runApply } from "./apply.js";
@@ -13,8 +13,16 @@ import {
   parseVisibilityFlag,
   runInit,
 } from "./init.js";
-import { getPackageRoot, loadManifest } from "./manifest.js";
+import { getPackageRoot, loadCliName, loadManifest } from "./manifest.js";
+import { inspectPin } from "./pin.js";
 import { detectScopes, readRepoMeta } from "./repo.js";
+import {
+  checkExitCode,
+  out,
+  reportFindingsJson,
+  reportFindingsText,
+  reportStaleCli,
+} from "./report.js";
 import { buildPendingPayload, writePending } from "./sync.js";
 
 const USAGE = `Usage: standards <command> [--cwd <dir>]
@@ -22,17 +30,23 @@ const USAGE = `Usage: standards <command> [--cwd <dir>]
 Commands:
   init    Create .repometa.json interactively (or via flags for CI)
           [--visibility oss|private] [--since <int>] [--platform github|forgejo] [--yes] [--force]
-  check   Report drift between this repository and the org standards (exit 1 on drift)
+  check   Report drift between this repository and the org standards
+          [--json: write one JSON object to stdout instead of prose]
+          Exit codes: 0 clean, 1 non-blocking findings, 3 at least one blocking
+          finding — the alignment class: the installed CLI is older than the
+          repository's stamp, or the @sebastian-software/standards pin is not a
+          bare exact version literal (apply does not repair the pin)
   apply   Write managed files, seed missing ones, update branding sections, bump the stamp
           [--from-version <int>: explicit baseline for pending-marker selection]
           [--emit-pending <path>: write a JSON marker describing pending judgement work]
   sync    apply + run an agent (claude or codex) on the changelog entries that need judgement
           [--agent claude|codex] [--dry-run: print the agent prompt instead of running]
-`;
 
-function out(line: string): void {
-  process.stdout.write(`${line}\n`);
-}
+apply and sync write nothing and exit 3 when the installed CLI is older than the
+repository's stamp, because they cannot validate what they would change; pass
+--from-version to apply for the Renovate path, where that stamp is legitimate.
+A pin that is not an exact version literal alone does not stop apply or sync.
+`;
 
 function getCwd(args: string[]): string {
   const index = args.indexOf("--cwd");
@@ -169,19 +183,48 @@ function reportInitResult(
   out("Next: run `standards apply` to populate managed and seeded files.");
 }
 
+/**
+ * The declared specifier `reportStaleCli` names. It is only printed when the
+ * CLI is behind the repository's stamp, so the `package.json` walk runs only
+ * then, and every other `apply` and `sync` run stays as cheap as before.
+ */
+function staleDisplaySpecifier(cwd: string, meta: RepoMeta, current: number): string | undefined {
+  return meta.standards > current
+    ? inspectPin(cwd, meta, loadCliName(getPackageRoot())).displaySpecifier
+    : undefined;
+}
+
 function applyCommand(cwd: string, currentYear: number, args: string[]): void {
   const explicitFromVersion = getFromVersion(args);
   const emitPending = getEmitPending(args);
   const meta = readRepoMeta(cwd);
   const effectiveFromVersion = explicitFromVersion ?? meta.standards;
 
-  const changes = runApply(cwd, currentYear, meta);
+  const packageRoot = getPackageRoot();
+  const current = loadManifest(packageRoot).currentVersion;
+  // `--from-version` is the Renovate path, where the stamp is legitimately
+  // raised ahead of the `dlx`-resolved CLI and self-healing has to keep working.
+  if (
+    explicitFromVersion === undefined &&
+    reportStaleCli(meta.standards, current, staleDisplaySpecifier(cwd, meta, current))
+  ) {
+    return;
+  }
+
+  const changes = runApply(cwd, currentYear, {
+    preReadMeta: meta,
+    explicitFromVersion: explicitFromVersion !== undefined,
+  });
 
   if (emitPending !== undefined) {
     const payload = buildPendingPayload(cwd, effectiveFromVersion, meta);
     writePending(cwd, emitPending, payload);
   }
 
+  reportApplyResult(changes);
+}
+
+function reportApplyResult(changes: ReturnType<typeof runApply>): void {
   if (changes.length === 0) {
     out("✓ Already up to date with org standards.");
     return;
@@ -190,17 +233,22 @@ function applyCommand(cwd: string, currentYear: number, args: string[]): void {
   out(`Applied ${String(changes.length)} change(s). Run your checks and commit.`);
 }
 
-function checkCommand(cwd: string, currentYear: number): void {
+function checkCommand(cwd: string, currentYear: number, args: string[]): void {
   const findings = runCheck(cwd, currentYear);
-  if (findings.length === 0) {
-    out("✓ Repository matches org standards.");
-    return;
+  const blocking = findings.filter((finding) => finding.blocking).length;
+
+  // `--json` is the agent's interface and emits nothing but the object, the
+  // zero-findings case included; the `✓` line belongs to the prose mode only.
+  if (hasFlag(args, "--json")) {
+    reportFindingsJson(findings, blocking);
+  } else {
+    reportFindingsText(findings, blocking);
   }
-  for (const finding of findings) {
-    out(`[${finding.kind}] ${finding.path}: ${finding.detail}`);
+
+  const code = checkExitCode(findings.length, blocking);
+  if (code !== 0) {
+    process.exitCode = code;
   }
-  out(`${String(findings.length)} finding(s). Run \`standards apply\` for the mechanical part.`);
-  process.exitCode = 1;
 }
 
 function syncCommand(cwd: string, currentYear: number, args: string[]): void {
@@ -210,7 +258,19 @@ function syncCommand(cwd: string, currentYear: number, args: string[]): void {
   const meta = readRepoMeta(cwd);
   const fromVersion = meta.standards;
 
-  reportApplied(runApply(cwd, currentYear, meta));
+  // Stop before `apply` and before the agent: a CLI that cannot validate this
+  // repository must not dispatch an agent to change it either.
+  if (
+    reportStaleCli(
+      fromVersion,
+      manifest.currentVersion,
+      staleDisplaySpecifier(cwd, meta, manifest.currentVersion),
+    )
+  ) {
+    return;
+  }
+
+  reportApplied(runApply(cwd, currentYear, { preReadMeta: meta }));
 
   const scopeNames = detectScopes(cwd, manifest);
   const entries = selectChanges(packageRoot, fromVersion, scopeNames);
@@ -262,7 +322,7 @@ async function main(): Promise<void> {
       break;
     }
     case "check": {
-      checkCommand(cwd, currentYear);
+      checkCommand(cwd, currentYear, rest);
       break;
     }
     case "sync": {

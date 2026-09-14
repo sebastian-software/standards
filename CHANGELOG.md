@@ -1,5 +1,69 @@
 # Changelog
 
+## [0.12.0](https://github.com/sebastian-software/standards/compare/standards-v0.11.1...standards-v0.12.0) (2026-09-13)
+
+
+### Features
+
+* verify that the standards CLI pin is an exact version literal ([#86](https://github.com/sebastian-software/standards/issues/86)) ([1d1ae4f](https://github.com/sebastian-software/standards/commit/1d1ae4fa89db708f7e3bcd148292097286b1c032))
+
+
+### Bug Fixes
+
+* **cli:** move repository-specific oxfmt ignores into .prettierignore on apply ([#88](https://github.com/sebastian-software/standards/issues/88)) ([d131536](https://github.com/sebastian-software/standards/commit/d1315367e70acd43cf24f93aa3a00f0582717a6a))
+
+## [0.11.1](https://github.com/sebastian-software/standards/compare/standards-v0.11.0...standards-v0.11.1) (2026-09-11)
+
+
+### Bug Fixes
+
+* **docs:** document native mdtheme badge integration ([#83](https://github.com/sebastian-software/standards/issues/83)) ([8c76402](https://github.com/sebastian-software/standards/commit/8c764026ede286937b86a826c8d08451a2187fc7))
+
+## [0.11.0](https://github.com/sebastian-software/standards/compare/standards-v0.10.0...standards-v0.11.0) (2026-09-11)
+
+
+### Features
+
+* delegate generated README ownership to native mdtheme ([#81](https://github.com/sebastian-software/standards/issues/81)) ([0dc064a](https://github.com/sebastian-software/standards/commit/0dc064a35d835e940b9994df51b573ce624b3886))
+
+## [0.10.0](https://github.com/sebastian-software/standards/compare/standards-v0.9.0...standards-v0.10.0) (2026-09-07)
+
+
+### Features
+
+* **cli:** prove CLI and stamp alignment and mark unvalidated agent runs ([#76](https://github.com/sebastian-software/standards/issues/76)) ([56c1fad](https://github.com/sebastian-software/standards/commit/56c1fade07fb8f7fb12fc2b308e5c9f89ef4fe80))
+
+
+### Bug Fixes
+
+* **cli:** report the stale-CLI mismatch from apply and sync ([#79](https://github.com/sebastian-software/standards/issues/79)) ([af276c0](https://github.com/sebastian-software/standards/commit/af276c0f3c9c8bf80fcc433f74de4a86e7db64ef))
+* **release:** let release-please carry the pinned CLI in the Rust reference ([#80](https://github.com/sebastian-software/standards/issues/80)) ([3dadb81](https://github.com/sebastian-software/standards/commit/3dadb814c8097d86aa6529218e4b3fe86024c83a))
+
+## [0.9.0](https://github.com/sebastian-software/standards/compare/standards-v0.8.0...standards-v0.9.0) (2026-09-06)
+
+
+### Features
+
+* **ci:** pin the standards CLI that consumer CI executes ([#72](https://github.com/sebastian-software/standards/issues/72)) ([fb503f1](https://github.com/sebastian-software/standards/commit/fb503f1a8c8032aa0529976a44bbaebf4c34e73b))
+* **cli:** apply the node scope inside declared workspaces ([#74](https://github.com/sebastian-software/standards/issues/74)) ([50b6ba1](https://github.com/sebastian-software/standards/commit/50b6ba1a1046c45bb0d18a53da4239326ae4921e))
+* **release:** add the publish skeleton and shared composite actions ([#69](https://github.com/sebastian-software/standards/issues/69)) ([b8c5862](https://github.com/sebastian-software/standards/commit/b8c58627f5e1333bd2279a91788209f8ff63bdf3))
+
+
+### Bug Fixes
+
+* **common:** name a private reporting route that resolves ([#70](https://github.com/sebastian-software/standards/issues/70)) ([ef4e5fd](https://github.com/sebastian-software/standards/commit/ef4e5fd081fa68b9233b6fa980d2da7ca5731c40))
+
+## [0.8.0](https://github.com/sebastian-software/standards/compare/standards-v0.7.0...standards-v0.8.0) (2026-09-06)
+
+
+### Features
+
+* add consumer agent guardrails ([38563cd](https://github.com/sebastian-software/standards/commit/38563cd67a6abcc8506bd2ba73c256bd6b825870))
+* add consumer agent guardrails ([b0aa242](https://github.com/sebastian-software/standards/commit/b0aa2425cb9924c0ae1bc5e0a34e3720939c42f7))
+* add Release Please product templates ([#62](https://github.com/sebastian-software/standards/issues/62)) ([ac98907](https://github.com/sebastian-software/standards/commit/ac98907f6ea6bdeb958d6a25dcd1432ef60d32e8))
+* **common:** seed community files, issue forms, PR template and CLAUDE pointer ([#65](https://github.com/sebastian-software/standards/issues/65)) ([4e4bc3c](https://github.com/sebastian-software/standards/commit/4e4bc3c3e1bfb7188088ef064036cfeb5fda136c))
+* **rust:** define the Rust scope with toolchain files, CI and publish skeletons ([#67](https://github.com/sebastian-software/standards/issues/67)) ([9be2b50](https://github.com/sebastian-software/standards/commit/9be2b50ea5c3824e2a49c8a18066e90192338cab))
+
 ## [0.7.0](https://github.com/sebastian-software/standards/compare/standards-v0.6.1...standards-v0.7.0) (2026-06-22)
 
 

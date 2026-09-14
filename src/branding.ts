@@ -14,7 +14,10 @@ export type SectionResult = {
 export function upsertSection(content: string, marker: string, body: string): SectionResult {
   const start = `<!-- ${marker}:start -->`;
   const end = `<!-- ${marker}:end -->`;
-  const block = `${start}\n\n${body.trim()}\n${end}`;
+  // The blank line before the end marker is not cosmetic: oxfmt (0.66+) inserts
+  // one when the section body ends in a list, so without it the formatter and
+  // `standards apply` overwrite each other on every run in consumer repos.
+  const block = `${start}\n\n${body.trim()}\n\n${end}`;
 
   const startIndex = content.indexOf(start);
   const endIndex = content.indexOf(end);

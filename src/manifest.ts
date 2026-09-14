@@ -7,6 +7,12 @@ export type FileMapping = {
   source: string;
   target: string;
   platform?: Platform;
+  /**
+   * Whether the entry also applies inside a workspace directory declared in
+   * `.repometa.json#workspaces`. Repository-level files (CI workflows,
+   * `renovate.json`) leave it unset; per-package configuration sets it.
+   */
+  workspace?: boolean;
 };
 
 export type SectionSpec = {
@@ -46,4 +52,32 @@ export function loadManifest(packageRoot: string): Manifest {
   const raw: unknown = JSON.parse(readFileSync(join(packageRoot, "manifest.json"), "utf8"));
   assertManifest(raw);
   return raw;
+}
+
+/**
+ * The npm version of the CLI that is running, read from its own
+ * `package.json`. `manifest.json#currentVersion` states which standards version
+ * this CLI ships; this states which release a consumer has to pin to get it.
+ * The two are independent numbers and both are needed to prove alignment.
+ */
+export function loadCliVersion(packageRoot: string): string {
+  const raw: unknown = JSON.parse(readFileSync(join(packageRoot, "package.json"), "utf8"));
+  if (!isRecord(raw) || typeof raw.version !== "string") {
+    throw new Error("Invalid package.json: expected { version: string }");
+  }
+  return raw.version;
+}
+
+/**
+ * The npm package name of the CLI that is running, read from the same
+ * `package.json` as `loadCliVersion`. It names the dependency the `pin`
+ * finding looks for and exempts the CLI's own repository — a renamed fork
+ * exempts itself correctly.
+ */
+export function loadCliName(packageRoot: string): string {
+  const raw: unknown = JSON.parse(readFileSync(join(packageRoot, "package.json"), "utf8"));
+  if (!isRecord(raw) || typeof raw.name !== "string") {
+    throw new Error("Invalid package.json: expected { name: string }");
+  }
+  return raw.name;
 }

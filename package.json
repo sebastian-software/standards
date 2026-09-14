@@ -1,6 +1,6 @@
 {
   "name": "@sebastian-software/standards",
-  "version": "0.7.0",
+  "version": "0.12.0",
   "description": "Repository standards for Sebastian Software — reference files, migration changelogs, agent instructions and a CLI to check and apply them.",
   "license": "MIT",
   "author": {
@@ -42,7 +42,8 @@
     "format": "oxfmt --write .",
     "format:check": "oxfmt --check .",
     "check:self": "node dist/cli.js check",
-    "agent:check": "pnpm lint && pnpm format:check && pnpm typecheck && pnpm build && pnpm test && pnpm check:self"
+    "agent:check": "pnpm check:ci && pnpm check:self",
+    "check:ci": "pnpm lint && pnpm format:check && pnpm typecheck && pnpm build && pnpm test"
   },
   "devDependencies": {
     "@types/node": "^24.12.4",

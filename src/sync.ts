@@ -1,5 +1,12 @@
-import { existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
-import { dirname, isAbsolute, join } from "node:path";
+import {
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  realpathSync,
+  unlinkSync,
+  writeFileSync,
+} from "node:fs";
+import { dirname, isAbsolute, join, normalize, sep } from "node:path";
 
 import type { Manifest, ScopeSpec, SectionSpec } from "./manifest.js";
 import type { Platform, RepoMeta } from "./repo.js";
@@ -7,7 +14,7 @@ import type { Platform, RepoMeta } from "./repo.js";
 import { buildPrompt } from "./agent.js";
 import { copyrightYears, renderTemplate, upsertSection } from "./branding.js";
 import { selectChanges } from "./changes.js";
-import { getPackageRoot, loadManifest } from "./manifest.js";
+import { getPackageRoot, loadCliVersion, loadManifest } from "./manifest.js";
 import { detectScopes, readRepoMeta } from "./repo.js";
 
 export function matchesPlatform(
@@ -19,14 +26,123 @@ export function matchesPlatform(
   return entryPlatform === metaPlatform;
 }
 
+/**
+ * One place scope entries are written to: the repository root (`dir: ""`) or a
+ * workspace directory declared in `.repometa.json#workspaces`.
+ */
+export type ScopeUnit = {
+  dir: string;
+  scopes: ScopeSpec[];
+};
+
 export type SyncContext = {
   cwd: string;
   packageRoot: string;
   manifest: Manifest;
   meta: RepoMeta;
   scopes: ScopeSpec[];
+  units: ScopeUnit[];
   currentYear: number;
 };
+
+function scopesOf(manifest: Manifest, names: string[]): ScopeSpec[] {
+  return names.map((name) => manifest.scopes[name]).filter((scope) => scope !== undefined);
+}
+
+/**
+ * The part of a scope that applies inside a workspace directory: entries marked
+ * `workspace`, and no sections — a marker section belongs to the repository's
+ * README or AGENTS file, not to a package inside it.
+ */
+function workspaceScope(scope: ScopeSpec): ScopeSpec {
+  return {
+    detect: scope.detect,
+    managed: scope.managed.filter((entry) => entry.workspace === true),
+    seeded: scope.seeded.filter((entry) => entry.workspace === true),
+    sections: [],
+  };
+}
+
+function hasEntries(scope: ScopeSpec): boolean {
+  return scope.managed.length > 0 || scope.seeded.length > 0;
+}
+
+/**
+ * Whether a scope can contribute anything to a workspace at all. A `Cargo.toml`
+ * inside a declared Node workspace detects the rust scope, but that scope has no
+ * workspace entries, so it must not reach the file writes or the changelog
+ * selection either.
+ */
+function appliesInWorkspace(manifest: Manifest, name: string): boolean {
+  const scope = manifest.scopes[name];
+  // `common` is repository-wide; a workspace never carries a second copy.
+  if (scope === undefined || scope.detect === "always") {
+    return false;
+  }
+  return hasEntries(workspaceScope(scope));
+}
+
+/**
+ * Declared workspace directories, deduplicated and confirmed to stay inside the
+ * repository. `.repometa.json` validation is lexical; a declared directory can
+ * still be a symlink pointing out of the checkout, and `apply` writes files into
+ * it — so the real path decides.
+ */
+export function workspaceDirs(cwd: string, meta: RepoMeta): string[] {
+  const root = realpathSync(cwd);
+  const seen = new Set<string>();
+  const dirs: string[] = [];
+
+  for (const declared of meta.workspaces ?? []) {
+    const dir = normalize(declared);
+    if (seen.has(dir)) {
+      continue;
+    }
+    seen.add(dir);
+
+    const target = join(cwd, dir);
+    const resolved = existsSync(target) ? realpathSync(target) : join(root, dir);
+    if (resolved !== root && !resolved.startsWith(root + sep)) {
+      throw new Error(
+        `Invalid workspace ${JSON.stringify(declared)}: it resolves to ${resolved}, outside the repository at ${root}.`,
+      );
+    }
+    dirs.push(dir);
+  }
+
+  return dirs;
+}
+
+/**
+ * Scope names that apply anywhere in the repository, root and declared
+ * workspaces together, in manifest order. This is what selects the changelog
+ * entries a repository has to read: a Rust repository with a Node package in
+ * `node/` needs the node-scope entries even though its root has no
+ * `package.json`.
+ */
+export function detectScopeNames(cwd: string, manifest: Manifest, meta: RepoMeta): string[] {
+  const names = new Set(detectScopes(cwd, manifest));
+  for (const dir of workspaceDirs(cwd, meta)) {
+    for (const name of detectScopes(join(cwd, dir), manifest)) {
+      if (appliesInWorkspace(manifest, name)) {
+        names.add(name);
+      }
+    }
+  }
+  return Object.keys(manifest.scopes).filter((name) => names.has(name));
+}
+
+export function detectUnits(cwd: string, manifest: Manifest, meta: RepoMeta): ScopeUnit[] {
+  const root: ScopeUnit = { dir: "", scopes: scopesOf(manifest, detectScopes(cwd, manifest)) };
+  const nested = workspaceDirs(cwd, meta).map((dir) => ({
+    dir,
+    scopes: scopesOf(
+      manifest,
+      detectScopes(join(cwd, dir), manifest).filter((name) => appliesInWorkspace(manifest, name)),
+    ).map((scope) => workspaceScope(scope)),
+  }));
+  return [root, ...nested.filter((unit) => unit.scopes.length > 0)];
+}
 
 export function createContext(
   cwd: string,
@@ -36,10 +152,9 @@ export function createContext(
   const packageRoot = getPackageRoot();
   const manifest = loadManifest(packageRoot);
   const meta = preReadMeta ?? readRepoMeta(cwd);
-  const scopes = detectScopes(cwd, manifest)
-    .map((name) => manifest.scopes[name])
-    .filter((scope) => scope !== undefined);
-  return { cwd, packageRoot, manifest, meta, scopes, currentYear };
+  const units = detectUnits(cwd, manifest, meta);
+  const scopes = scopesOf(manifest, detectScopes(cwd, manifest));
+  return { cwd, packageRoot, manifest, meta, scopes, units, currentYear };
 }
 
 export function readReference(context: SyncContext, source: string): string {
@@ -82,6 +197,19 @@ export type PendingPayload = {
   schemaVersion: 1;
   fromVersion: number;
   toVersion: number;
+  /**
+   * The npm version of the CLI that produced this payload, read from its own
+   * `package.json`. Under Renovate's `postUpgradeTasks` that is the freshly
+   * resolved `dlx` CLI, so the field carries correct information even when the
+   * repository's own installed CLI is stale — which is exactly the case the
+   * consumer has to repair by raising its pin to this value.
+   *
+   * Optional because the field is additive: `schemaVersion` stays `1`. Every
+   * writer populates it — `buildPendingPayload` always does — but a reader has
+   * to tolerate its absence, because a payload an older CLI wrote and left in
+   * flight when this release lands carries no `cliVersion` and is still valid.
+   */
+  cliVersion?: string;
   scopes: string[];
   visibility: RepoMeta["visibility"];
   exceptions: string[];
@@ -133,6 +261,12 @@ function assertPayloadHeader(value: Record<string, unknown>): void {
   if (typeof value.toVersion !== "number") {
     throw new TypeError("Invalid pending payload: toVersion is not a number.");
   }
+  // Validated when present, not required: `cliVersion` was added without a
+  // schema bump, so a payload written by an older CLI and still sitting on a
+  // branch stays acceptable rather than failing a reader closed.
+  if (value.cliVersion !== undefined && typeof value.cliVersion !== "string") {
+    throw new TypeError("Invalid pending payload: cliVersion is not a string.");
+  }
 }
 
 function assertPayloadMeta(value: Record<string, unknown>): void {
@@ -177,8 +311,9 @@ export function buildPendingPayload(
 ): PendingPayload | undefined {
   const packageRoot = getPackageRoot();
   const manifest = loadManifest(packageRoot);
+  const cliVersion = loadCliVersion(packageRoot);
   const meta = preReadMeta ?? readRepoMeta(cwd);
-  const scopeNames = detectScopes(cwd, manifest);
+  const scopeNames = detectScopeNames(cwd, manifest, meta);
   const changes = selectChanges(packageRoot, fromVersion, scopeNames);
   if (changes.length === 0) {
     return undefined;
@@ -189,6 +324,7 @@ export function buildPendingPayload(
     scopeNames,
     fromVersion,
     toVersion: manifest.currentVersion,
+    cliVersion,
     changes,
     // The prompt ships inside pending.json next to the `changes` array, so it
     // references that array instead of duplicating every changelog body.
@@ -198,6 +334,7 @@ export function buildPendingPayload(
     schemaVersion: 1,
     fromVersion,
     toVersion: manifest.currentVersion,
+    cliVersion,
     scopes: scopeNames,
     visibility: meta.visibility,
     exceptions: meta.exceptions ?? [],

@@ -1,0 +1,102 @@
+{
+  "$comment": "Org-wide issue label taxonomy. Reference data only — `standards apply` does not create labels. See README.md#label-taxonomy for how to apply and migrate them.",
+  "labels": [
+    {
+      "name": "type:bug",
+      "color": "d73a4a",
+      "description": "Something behaves differently than documented."
+    },
+    {
+      "name": "type:feature",
+      "color": "a2eeef",
+      "description": "New behavior, API, or option."
+    },
+    {
+      "name": "type:docs",
+      "color": "0075ca",
+      "description": "Documentation, examples, or changelog wording."
+    },
+    {
+      "name": "type:chore",
+      "color": "cfd3d7",
+      "description": "Maintenance: tooling, CI, refactoring, release plumbing."
+    },
+    {
+      "name": "priority:P0",
+      "color": "b60205",
+      "description": "Drop everything: data loss, security, or main is broken."
+    },
+    {
+      "name": "priority:P1",
+      "color": "d93f0b",
+      "description": "Next up: blocks users or the next release."
+    },
+    {
+      "name": "priority:P2",
+      "color": "fbca04",
+      "description": "Scheduled: planned work without a hard deadline."
+    },
+    {
+      "name": "priority:P3",
+      "color": "c2e0c6",
+      "description": "Backlog: nice to have, no commitment."
+    },
+    {
+      "name": "epic",
+      "color": "5319e7",
+      "description": "Tracking issue that groups related work. Title convention: `Epic: …`."
+    },
+    {
+      "name": "cross-repo",
+      "color": "1d76db",
+      "description": "Work that spans more than one repository in the org."
+    },
+    {
+      "name": "good first issue",
+      "color": "7057ff",
+      "description": "Good entry point for a first contribution."
+    },
+    {
+      "name": "dependencies",
+      "color": "0366d6",
+      "description": "Dependency updates. Renovate applies this label."
+    },
+    {
+      "name": "question",
+      "color": "d876e3",
+      "description": "Usage or contributor question. Applied by the Question issue form."
+    },
+    {
+      "name": "standards:needs-agent",
+      "color": "d4c5f9",
+      "description": "Standards drift PR with open judgement steps — see SKILL.md."
+    },
+    {
+      "name": "standards:needs-review",
+      "color": "bfd4f2",
+      "description": "Standards drift PR awaiting the semantic pre-check — see SKILL.md."
+    }
+  ],
+  "prefixes": [
+    {
+      "prefix": "area:",
+      "color": "e4e669",
+      "description": "Repository-specific subsystem, one value per repo (for example `area:cli`, `area:parser`). The prefix is org-wide, the values are not."
+    }
+  ],
+  "migrations": [
+    { "from": "priority:low", "to": "priority:P3" },
+    { "from": "priority:medium", "to": "priority:P2" },
+    { "from": "priority:high", "to": "priority:P1" },
+    { "from": "priority: P2", "to": "priority:P2" },
+    { "from": "P0", "to": "priority:P0" },
+    { "from": "P1", "to": "priority:P1" },
+    { "from": "P2", "to": "priority:P2" },
+    { "from": "P3", "to": "priority:P3" },
+    { "from": "bug", "to": "type:bug" },
+    { "from": "enhancement", "to": "type:feature" },
+    { "from": "documentation", "to": "type:docs" },
+    { "from": "chore", "to": "type:chore" },
+    { "from": "category:", "to": "area:" }
+  ]
+}
