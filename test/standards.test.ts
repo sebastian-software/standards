@@ -1,7 +1,9 @@
+import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import {
   chmodSync,
+  cpSync,
   existsSync,
   mkdirSync,
   mkdtempSync,
@@ -120,6 +122,15 @@ function createFixtureRepo(): string {
     join(cwd, ".repometa.json"),
     `${JSON.stringify({ standards: 0, visibility: "oss", since: 2020, platform: "github" }, undefined, 2)}\n`,
   );
+  return cwd;
+}
+
+function createVersionedFixtureRepo(name: string): string {
+  const source = join(import.meta.dirname, "fixtures", name);
+  const cwd = mkdtempSync(join(tmpdir(), `standards-${name}-`));
+  for (const entry of readdirSync(source)) {
+    cpSync(join(source, entry), join(cwd, entry), { recursive: true });
+  }
   return cwd;
 }
 
@@ -1202,6 +1213,39 @@ describe("label taxonomy", () => {
       expect(names.has(label)).toBe(true);
       expect(readFileSync(join(packageRoot, "reference/common", file), "utf8")).toContain(label);
     }
+  });
+});
+
+describe("versioned consumer fixtures", () => {
+  it("upgrades the historical github consumer fixture end to end", () => {
+    const cwd = createVersionedFixtureRepo("github-consumer");
+    const originalPackage = readFileSync(join(cwd, "package.json"), "utf8");
+    const originalRenovate = readFileSync(join(cwd, "renovate.json"), "utf8");
+
+    const changes = runApply(cwd, YEAR);
+    const paths = changes.map((change) => change.path);
+
+    expect(paths).toContain(".github/workflows/ci.yml");
+    expect(paths).not.toContain(".forgejo/workflows/ci.yml");
+    expect(existsSync(join(cwd, ".github/workflows/ci.yml"))).toBe(true);
+    expect(existsSync(join(cwd, ".forgejo/workflows/ci.yml"))).toBe(false);
+    expect(readStamp(cwd)).toBe(currentStandardsVersion());
+    expect(readFileSync(join(cwd, "package.json"), "utf8")).toBe(originalPackage);
+    expect(readFileSync(join(cwd, "renovate.json"), "utf8")).toBe(originalRenovate);
+    expect(readFileSync(join(cwd, "README.md"), "utf8")).toContain("All rights reserved");
+    expect(runCheck(cwd, YEAR)).toStrictEqual([
+      expect.objectContaining({ kind: "pin", path: "package.json", blocking: true }),
+    ]);
+
+    // apply preserves consumer metadata; declaring the CLI is a separate migration step.
+    const pkg: unknown = JSON.parse(originalPackage);
+    assert(isRecord(pkg), "The consumer fixture package must be an object.");
+    writeFileSync(
+      join(cwd, "package.json"),
+      `${JSON.stringify({ ...pkg, devDependencies: { [CLI_NAME]: EXACT_PIN } }, undefined, 2)}\n`,
+    );
+    expect(runCheck(cwd, YEAR)).toStrictEqual([]);
+    expect(runApply(cwd, YEAR)).toStrictEqual([]);
   });
 });
 

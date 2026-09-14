@@ -305,11 +305,10 @@ https://github.com/example/example.git`, expected `"github"`;
 - **Assumption:** consumer repos using GitHub use the default branch
   name `main`. Repos that override the default branch must adapt the
   seeded workflow themselves (the seeded contract permits this).
-- **Open:** the matching companion PR in `standards-test-repo2`
-  (manually setting `platform: "github"` in its `.repometa.json`)
-  is tracked separately as `standards-test-repo2#4`. Out of scope
-  for this implementation but a prerequisite for the next end-to-end
-  drift PR.
+- **Resolved:** the matching companion change was originally tracked
+  in `standards-test-repo2#4`. The external fixture was later archived
+  and its deterministic apply/check coverage moved to
+  `test/fixtures/github-consumer`.
 - **Open:** if a later Forgejo CI changelog (`#10`) introduces a
   shared `pnpm run --if-present` pipeline shape, the GitHub seed may
   be refactored to import a shared snippet. Out of scope here.
@@ -340,7 +339,10 @@ https://github.com/example/example.git`, expected `"github"`;
 - **Failure modes — hint:** `detectPlatform` is best-effort. Any failure mode (missing git, no remote, timeout) maps to `forgejo` so the prompt default is always populated. The user always has the final word interactively or via `--platform`.
 - **Testability — hint:** The unit tests for the filter logic exercise the four-way matrix directly on `applyManaged`/`checkManaged` with a synthetic manifest snippet; this isolates the filter from the rest of the apply pipeline and keeps the test small.
 - **Scope — hint:** Forgejo CI is intentionally out of scope (tracked in `#10`). The schema and filter changes are forward-compatible — adding `platform: "forgejo"` entries later requires no further code changes.
-- **Scope — hint:** Companion stamp in `standards-test-repo2` is mentioned but explicitly out of scope. Cross-repo coordination via the linked issue.
+- **Scope — hint:** The companion stamp was originally coordinated in
+  `standards-test-repo2`. The external fixture was later replaced by
+  `test/fixtures/github-consumer`; live GitHub and Renovate behavior
+  remains outside the deterministic test suite.
 - **Maintainability — hint:** `Platform` type lives in `src/repo.ts` and is re-exported / consumed by `src/manifest.ts` and `src/init.ts`. Single source for the literal union avoids drift if a third platform ever appears.
 - **Maintainability — hint:** Self-bump in `.repometa.json` keeps the repo on the manifest version it ships, so `check:self` always reflects current reality.
 

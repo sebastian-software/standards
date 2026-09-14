@@ -171,8 +171,10 @@ stamp itself).
   short.
 - **Scope — hint:** Forgejo runner setup (admin side) stays out of
   scope. The seed assumes a working `runs-on: docker` pool.
-- **Scope — hint:** `standards-test-repo2` stamp coordination stays
-  out of scope; tracked externally.
+- **Scope — hint:** The former `standards-test-repo2` stamp
+  coordination was external to this change. Its deterministic
+  consumer coverage now lives in `test/fixtures/github-consumer`;
+  live GitHub and Renovate behavior remains out of scope.
 - **Maintainability — hint:** Both CI references live under
   `reference/node/<platform>-workflows-ci.yml`. If a third platform
   is ever added, the naming pattern scales without rename.

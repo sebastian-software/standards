@@ -58,6 +58,7 @@ the next time `standards apply` runs.
   registered `ubuntu-latest` labels. The pipeline shape mirrors the
   GitHub seed (pnpm + Node 24, `pnpm run --if-present` chain, drift
   check).
-- The matching `.repometa.json` stamp in the fixture repo
-  `standards-test-repo2` is tracked separately as
-  `sebastian-software/standards-test-repo2#5`.
+- The matching `.repometa.json` stamp was originally validated in the
+  external fixture repo `standards-test-repo2`. That repo was archived
+  after deterministic consumer coverage moved to
+  `test/fixtures/github-consumer`.
