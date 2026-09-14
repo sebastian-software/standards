@@ -6,7 +6,33 @@ on:
     branches: [main]
 
 jobs:
-  check:
+  ci:
+    name: CI / Check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v6
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - run: pnpm run --if-present lint
+
+      - run: pnpm run --if-present format:check
+
+      - run: pnpm run --if-present typecheck
+
+      - run: pnpm run --if-present build
+
+      - run: pnpm run --if-present test
+
+  standards:
+    name: Standards / Consistency
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -65,16 +91,6 @@ jobs:
           if (state.blocking) { fail('the agent could not validate its result.'); }
           console.log('The agent marker is non-blocking; its findings are reviewer context.');
           "
-
-      - run: pnpm run --if-present lint
-
-      - run: pnpm run --if-present format:check
-
-      - run: pnpm run --if-present typecheck
-
-      - run: pnpm run --if-present build
-
-      - run: pnpm run --if-present test
 
       # The pinned CLI has to ship the manifest version this repository is
       # stamped at. Below the stamp, every `standards check` verdict is computed

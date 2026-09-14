@@ -936,7 +936,7 @@ describe("nested node workspaces", () => {
 
     expect(existsSync(join(cwd, "node", "rustfmt.toml"))).toBe(false);
     expect(buildPayload(cwd, 8)?.changes.map((entry) => entry.version)).toStrictEqual([
-      9, 10, 11, 12, 13, 14,
+      9, 10, 11, 12, 13, 14, 15,
     ]);
   });
 
@@ -1216,14 +1216,14 @@ describe("selectChanges and buildPrompt", () => {
       1, 2, 3, 7, 8, 9, 10, 11, 12,
     ]);
     expect(selectChanges(root, 1, ["common", "node"]).map((entry) => entry.version)).toStrictEqual([
-      2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14,
+      2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15,
     ]);
     expect(selectChanges(root, 8, ["common", "node"]).map((entry) => entry.version)).toStrictEqual([
-      9, 10, 11, 12, 13, 14,
+      9, 10, 11, 12, 13, 14, 15,
     ]);
     // 0009 is the first entry a rust-only repository ever receives.
     expect(selectChanges(root, 0, ["rust"]).map((entry) => entry.version)).toStrictEqual([
-      9, 11, 13,
+      9, 11, 13, 15,
     ]);
   });
 

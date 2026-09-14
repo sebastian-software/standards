@@ -11,7 +11,8 @@ permissions:
   contents: read
 
 jobs:
-  check:
+  ci:
+    name: CI / Check
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -21,7 +22,7 @@ jobs:
           node-version: 24
           cache: pnpm
       - run: pnpm install --frozen-lockfile
-      - run: pnpm agent:check
+      - run: pnpm check:ci
 
   action-pins:
     name: action pins
@@ -35,3 +36,30 @@ jobs:
           paths: |
             .github/workflows
             .github/actions
+
+  standards:
+    name: Standards / Consistency
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm build
+      - run: pnpm check:self
+
+  # Keep the existing required check green only when both new gates pass.
+  # Remove this bridge after branch protection requires the two named jobs.
+  check:
+    needs: [ci, standards]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require both quality gates
+        env:
+          CI_RESULT: ${{ needs.ci.result }}
+          STANDARDS_RESULT: ${{ needs.standards.result }}
+        run: test "$CI_RESULT" = success && test "$STANDARDS_RESULT" = success
