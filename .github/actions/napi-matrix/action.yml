@@ -24,10 +24,11 @@ inputs:
 outputs:
   matrix:
     description: >-
-      JSON object with an `include` array, ready for
-      `strategy: matrix: ${{ fromJSON(...) }}`. Each entry carries `id`,
-      `target`, `runner`, `os`, `cpu`, `libc`, `native`, `sidecar`, `artifact`
-      and `binary`.
+      JSON object with an `include` array, ready to be passed through
+      `fromJSON` into `strategy.matrix`. (The runner evaluates expression
+      syntax even inside this description, so it is spelled out in words.)
+      Each entry carries `id`, `target`, `runner`, `os`, `cpu`, `libc`,
+      `native`, `sidecar`, `artifact` and `binary`.
     value: ${{ steps.matrix.outputs.matrix }}
   platform-ids:
     description: Space-separated platform ids, for shell loops over the selection.
