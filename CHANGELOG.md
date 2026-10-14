@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.14.0](https://github.com/sebastian-software/standards/compare/standards-v0.13.0...standards-v0.14.0) (2026-10-14)
+
+
+### Features
+
+* **release:** follow workspace package versions with one glob ([#97](https://github.com/sebastian-software/standards/issues/97)) ([63ca54a](https://github.com/sebastian-software/standards/commit/63ca54a59f0b08e4a463953ca9f4e7ac652cc1de))
+
 ## [0.13.0](https://github.com/sebastian-software/standards/compare/standards-v0.12.0...standards-v0.13.0) (2026-09-16)
 
 
