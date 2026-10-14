@@ -14,7 +14,8 @@
         },
         {
           "type": "json",
-          "path": "packages/my-product/package.json",
+          "path": "{apps,packages}/*/package.json",
+          "glob": true,
           "jsonpath": "$.version"
         }
       ]
