@@ -106,16 +106,48 @@ For a Node-only repository, the root `package.json` is the product version
 source and the component uses `release-type: node`. Release Please updates that
 root metadata through its native Node strategy.
 
-Additional packages that always ship with the product can be typed JSON
-`extra-files` instead of separate components:
+Additional packages that always ship with the product follow the root version
+through one globbed JSON `extra-files` entry instead of separate components.
+
+### Version followers by glob
+
+Release Please expands an `extra-files` path with `"glob": true` against the
+target branch and applies the typed updater to every match:
 
 ```json
 {
   "type": "json",
-  "path": "packages/my-product-cli/package.json",
+  "path": "{apps,packages}/*/package.json",
+  "glob": true,
   "jsonpath": "$.version"
 }
 ```
+
+The matcher is minimatch, so brace sets and `*` work as usual and `*` stays
+within one directory level: the pattern above matches `apps/site/package.json`
+and `packages/my-product-cli/package.json`, but not the root `package.json`,
+fixtures below a package, or `node_modules`. The option exists since Release
+Please 14.6.0.
+
+The JSON updater skips a manifest whose `jsonpath` finds no version string. That
+gives the pattern one convention instead of an exclusion list:
+
+- A workspace package that ships with the product version has a `version`
+  field.
+- A workspace package that does not — a private app, a shared design package,
+  an internal tool — has no `version` field at all, not even `0.0.0`.
+
+pnpm resolves `workspace:*` and `workspace:^` references to a private package
+without a `version` field, and its lockfile records workspace links rather than
+versions, so dropping the field does not change the lockfile. Where a package
+manager or tool still needs the field, exclude the package by name instead, for
+example `packages/!(site-ui)/package.json`.
+
+A glob picks up new packages without a config change, which is the point of
+it, but it also removes the list a reviewer used to read. Keep a small
+repository-local check next to the release configuration that fails when a
+publishable package lacks the product version or a private package under the
+globbed directories carries a `version` field.
 
 Prefer workspace-protocol dependencies such as `workspace:*` between local
 packages when the package manager's pack and publish behavior fits the
@@ -141,7 +173,14 @@ repository.
 A configured package has one Release Please strategy, not both Rust and Node.
 For a combined repository, use the native Rust root because it owns Cargo
 workspace version propagation and `Cargo.lock`. Add the Node package versions
-as typed JSON `extra-files` on that component.
+as typed JSON `extra-files` on that component: an explicit entry for the root
+`package.json` and the [version-follower glob](#version-followers-by-glob) for
+the workspace packages.
+
+Do not add the `cargo-workspace` plugin to this single-component shape. The Rust
+strategy already moves every member to the product version; the plugin treats
+members without their own component as independent crates and plans a separate
+patch release for each one that depends on a bumped crate.
 
 Use workspace-protocol references on the Node side where possible, and run both
 the Cargo locked checks and the Node lockfile no-diff check on the generated
@@ -258,16 +297,16 @@ in one line, and it fails loudly.
 What each repository that deviates from the skeleton has to change. The
 tracking issue is in the repository's own epic.
 
-| Repository            | Today                                                                                                   | To match the skeleton                                                                                                                               |
-| --------------------- | ------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **ferroni** (#98)     | `publish.yml` with release-please, Trusted Publishing and a `CARGO_REGISTRY_TOKEN` fallback             | Replace the inline publish step with `publish-crates` (one crate, so the ordering is trivial); drop the reusable workflow from ferramenta           |
-| **ferralk** (#370)    | `release-type: simple` with 15 `extra-files`, including `Cargo.lock` jsonpaths; publish on release      | Make `ferralk` a real root package and switch to `release-type: rust`, which updates the members and the lockfile natively; then adopt the skeleton |
-| **ferromark** (#266)  | `release-type: rust` with 24 `extra-files`, including 8 `pnpm-lock.yaml` jsonpaths                      | Replace the lockfile jsonpaths with `workspace:` references plus the lockfile no-diff check; adopt `napi-matrix` for the eight platforms            |
-| **ferrolex** (#259)   | `cargo-workspace` plugin, 9 npm `extra-files`, publish through `scripts/publish-crates.py` with a token | Replace the Python publisher with `publish-crates` (same ordering, same index wait) and move crates.io to Trusted Publishing                        |
-| **palamedes** (#1154) | `release-type: simple` with 44 `extra-files` (4 Cargo.toml, 4 Cargo.lock, 36 package.json)              | Move to the rust/node template with a real root package, so Cargo and the lockfile are updated natively and only Node versions stay typed entries   |
-| **dalo** (#720)       | `release-type: rust`, draft releases, signed archives, Homebrew dispatch, crates.io token               | Keep the draft-release and Homebrew jobs; swap the token publish step for `publish-crates` with Trusted Publishing                                  |
-| **ferrocat**          | Matches the pattern, with its own `publish_with_retry` shell function                                   | Replace the inline function with `publish-crates`; the behavior is the same, including the already-published skip                                   |
-| **ferriki**           | `release-type: node`, five napi platforms, hand-listed download steps                                   | Adopt `napi-matrix` and `publish-npm`; the sidecar names already follow `<main>-<platform>`                                                         |
+| Repository            | Today                                                                                                   | To match the skeleton                                                                                                                                                                                          |
+| --------------------- | ------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **ferroni** (#98)     | `publish.yml` with release-please, Trusted Publishing and a `CARGO_REGISTRY_TOKEN` fallback             | Replace the inline publish step with `publish-crates` (one crate, so the ordering is trivial); drop the reusable workflow from ferramenta                                                                      |
+| **ferralk** (#370)    | `release-type: simple` with 15 `extra-files`, including `Cargo.lock` jsonpaths; publish on release      | Make `ferralk` a real root package and switch to `release-type: rust`, which updates the members and the lockfile natively; then adopt the skeleton                                                            |
+| **ferromark** (#266)  | `release-type: rust` with 24 `extra-files`, including 8 `pnpm-lock.yaml` jsonpaths                      | Replace the lockfile jsonpaths with `workspace:` references plus the lockfile no-diff check; collapse the `package.json` entries into the version-follower glob; adopt `napi-matrix` for the eight platforms   |
+| **ferrolex** (#259)   | `cargo-workspace` plugin, 9 npm `extra-files`, publish through `scripts/publish-crates.py` with a token | Drop the plugin if all crates share the product version, collapse the npm entries into the version-follower glob, replace the Python publisher with `publish-crates`, and move crates.io to Trusted Publishing |
+| **palamedes** (#1154) | `release-type: rust` with a real root package and 30 enumerated `package.json` extra-files              | Collapse the npm entries into the version-follower glob and drop `version` from private packages (sebastian-software/palamedes#1249)                                                                           |
+| **dalo** (#720)       | `release-type: rust`, draft releases, signed archives, Homebrew dispatch, crates.io token               | Keep the draft-release and Homebrew jobs; swap the token publish step for `publish-crates` with Trusted Publishing                                                                                             |
+| **ferrocat**          | Matches the pattern, with its own `publish_with_retry` shell function                                   | Replace the inline function with `publish-crates`; the behavior is the same, including the already-published skip                                                                                              |
+| **ferriki**           | `release-type: node`, five napi platforms, hand-listed download steps                                   | Adopt `napi-matrix` and `publish-npm`; the sidecar names already follow `<main>-<platform>`                                                                                                                    |
 
 Verify the current state before acting on a row: several of these repositories
 moved during the 2026-09 alignment, and an epic may already have closed part of

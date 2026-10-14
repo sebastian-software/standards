@@ -7,6 +7,7 @@ import { getPackageRoot } from "../src/manifest.js";
 type ExtraFile = {
   type: string;
   path: string;
+  glob?: boolean;
   jsonpath: string;
 };
 
@@ -41,6 +42,7 @@ function isExtraFile(value: unknown): value is ExtraFile {
     isRecord(value) &&
     typeof value.type === "string" &&
     typeof value.path === "string" &&
+    (value.glob === undefined || typeof value.glob === "boolean") &&
     typeof value.jsonpath === "string"
   );
 }
@@ -119,7 +121,8 @@ describe("Release Please product templates", () => {
     ).toStrictEqual([
       {
         type: "json",
-        path: "packages/my-product-cli/package.json",
+        path: "{apps,packages}/*/package.json",
+        glob: true,
         jsonpath: "$.version",
       },
     ]);
@@ -133,7 +136,8 @@ describe("Release Please product templates", () => {
       },
       {
         type: "json",
-        path: "packages/my-product/package.json",
+        path: "{apps,packages}/*/package.json",
+        glob: true,
         jsonpath: "$.version",
       },
     ]);
@@ -145,6 +149,7 @@ describe("Release Please product templates", () => {
     for (const name of TEMPLATE_NAMES) {
       expect(guide).toContain(`](${name})`);
     }
+    expect(guide).toContain("### Version followers by glob");
     expect(guide).toContain("`bootstrap-sha`");
     expect(guide).toContain("`last-release-sha`");
   });

@@ -9,7 +9,8 @@
       "extra-files": [
         {
           "type": "json",
-          "path": "packages/my-product-cli/package.json",
+          "path": "{apps,packages}/*/package.json",
+          "glob": true,
           "jsonpath": "$.version"
         }
       ]
