@@ -5,6 +5,15 @@
 [![Powered by Sebastian Software](https://img.shields.io/badge/Powered_by-Sebastian_Software-005164?style=flat)](https://oss.sebastian-software.com) [![CI](https://github.com/sebastian-software/standards/actions/workflows/ci.yml/badge.svg)](https://github.com/sebastian-software/standards/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
+> [!IMPORTANT]
+> **Retired.** This repository and the `@sebastian-software/standards` CLI
+> receive no further releases, and the repository is archived. Repository
+> conventions now live in
+> [`sebastian-software/project-infra`](https://github.com/sebastian-software/project-infra);
+> its [migration guide](https://github.com/sebastian-software/project-infra/blob/main/skills/project-infra/references/migration.md)
+> lists what to remove from a repository that still uses the CLI. Existing
+> action tags stay readable for reruns of older workflows.
+
 The single source of truth for repository standards across the
 `sebastian-software` org — reference files, migration changelogs, agent
 instructions and a CLI to check and apply them.
